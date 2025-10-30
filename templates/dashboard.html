@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <header class="dashboard_header">
+        <h1>Welcome, {{ username }}!</h1>
+    </header>
+
+    <div class="simple_container">
+        <!-- Create Folder -->
+        <button class="button-dashboard" onclick="document.getElementById('createFolderDialog').showModal()">Create
+            Folder</button>
+        <dialog class="dialog-create-folder" id="createFolderDialog">
+            <form method="POST" action="{{ url_for('create_folder') }}">
+                <input type="text" name="folder_name" placeholder="New folder name" required>
+                <input type="hidden" name="parent_id" value="{{ current_folder_id or '' }}">
+                <button class="button-dashboard" type="submit">Create Folder</button>
+                <button class="button-dashboard" type="button" onclick="this.closest('dialog').close()">Cancel</button>
+            </form>
+        </dialog>
+
+        <!-- Upload File -->
+        <form method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data">
+            <input type="hidden" name="folder_id" value="{{ current_folder_id }}">
+            <input type="file" name="file" style="display:none" id="fileInput" onchange="this.form.submit();">
+            <button class="button-dashboard" type="button"
+                onclick="document.getElementById('fileInput').click();">Upload File</button>
+        </form>
+
+        <!-- Logout -->
+        <form method="POST" action="{{ url_for('logout') }}">
+            <button class="button-dashboard" type="submit">Logout</button>
+        </form>
+    </div>
+
+    <div class="user-files-container">
+        <div>
+            <div class="div-user-files-nav">
+                <!-- Only if in subfolder -->
+                {% if current_folder_id %}
+                <!-- Home -->
+                <form method="POST" action="{{ url_for ('dashboard') }}">
+                    <button class="button-dashboard" type="submit">🏠 Home</button>
+                </form>
+
+                <!-- Back -->
+                <form method="POST" action="{{ url_for('dashboard') }}" style="display:inline;">
+                    <input type="hidden" name="folder_id" value="{{ parent_id }}">
+                    <button type="submit" class="button-dashboard">⬅ Back</button>
+                </form>
+                {% endif %}
+            </div>
+
+            <table class="table-user-files">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for folder in folders %}
+                    <tr>
+                        <td>
+                            <form method="POST" action="{{ url_for('dashboard') }}" style="display:inline;">
+                                <input type="hidden" name="folder_id" value="{{ folder.id }}">
+                                <button type="submit" class="button-dashboard">{{ folder.name }}</button>
+                            </form>
+                        </td>
+                        <td>Folder</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}"
+                                style="display:inline;">
+                                <button class="button-dashboard" type="submit">🗑️ Delete</button>
+                            </form>
+                            <a href="{{ url_for('download_folder', folder_id=folder.id) }}">
+                                <button class="button-dashboard" type="button">💾 Download</button>
+                            </a>
+                            <button class="button-dashboard" onclick="document.getElementById('renameFolderDialog{{ folder.id }}').showModal()">🖊️ Rename</button>
+                            <dialog class="dialog-create-folder" id="renameFolderDialog{{ folder.id }}">
+                                <form method="POST" action="{{ url_for('rename_folder') }}">
+                                    <input type="text" name="folder_name" placeholder="Folder name" required>
+                                    <input type="hidden" name="folder_id" value="{{ folder.id }}">
+                                    <button class="button-dashboard" type="submit">Rename Folder</button>
+                                    <button class="button-dashboard" type="button" onclick="this.closest('dialog').close()">Cancel</button>
+                                </form>
+                            </dialog>
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {% for file in files %}
+                    <tr>
+                        <td>{{ file.original_name }}</td>
+                        <td>{{ file.mime_type }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('delete_file', file_id=file.id) }}"
+                                style="display:inline;">
+                                <button class="button-dashboard" type="submit">🗑️ Delete</button>
+                            </form>
+                            <a href="{{ url_for('download_file', file_id=file.id) }}">
+                                <button class="button-dashboard" type="button">💾 Download</button>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+
+</html>

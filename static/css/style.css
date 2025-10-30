@@ -1,0 +1,200 @@
+/* UMKC Theme CSS */
+:root {
+          --primary-color: #005BBB;     /* UMKC Blue */
+          --primary-color-darker: #003b7a;
+          --primary-color-lighter: #026ee2; 
+          --secondary-color: #FFD100;   /* UMKC Gold */
+          --secondary-color-darker: #dbb301;
+        }
+
+body {
+    background-color: var(--primary-color);
+    color: var(--secondary-color);
+    font-family: Arial, sans-serif;
+    font-size: 20px;
+    margin: 0;
+    padding: 0;
+}
+
+.button-yellow {
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-weight: bold;
+    padding: 10px 20px;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+}
+.button-yellow:hover {
+    background-color: var(--secondary-color-darker)
+}
+
+.button-dashboard{
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    margin: 5px 10px;
+    padding: 10px 20px;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+}
+.button-dashboard:hover {
+    background-color: var(--secondary-color-darker)
+}
+
+.general_container {
+    align-self: center;
+    text-align: center;
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    margin: 50px auto;
+    padding: 30px 50px;
+    width: fit-content;
+}
+
+.simple_container {
+    align-self: center;
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    display: flex;
+    flex-direction: row;
+    margin: 10px auto;
+    padding: 10px;
+    text-align: center;
+    width: fit-content;
+}
+
+.user-files-container {
+    align-self: center;
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    display: flex;
+    flex-direction: column;
+    margin: 10px 50px;
+    padding-top: 20px;
+    text-align: left;
+    width: calc(100% - 100px);
+}
+
+.dashboard_header {
+    align-self: center;
+    background-color: var(--primary-color-darker);
+    border: 3px solid var(--secondary-color);
+    box-sizing: border-box;
+    height: fit-content;
+    text-align: center;
+    width: 100%;
+}
+
+.login_register {
+    margin-bottom: 40px;
+    text-align: left;
+}
+.login_register label{
+    display: inline-block;
+    margin-bottom: 5px;
+}
+.login_register input {
+    background-color: var(--primary-color);
+    border: 2px solid var(--secondary-color);
+    border-radius: 10px;
+    color: var(--secondary-color);
+    padding: 5px 10px;
+}
+.login_register input:focus {
+    outline: none;
+}
+.login_register input[type="submit"] {
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    display: block;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 10px 20px;
+    text-align: center;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+    width: 100%;
+}
+.login_register input[type="submit"]:hover {
+    background-color: var(--secondary-color-darker)
+}
+
+.table-user-files {
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    margin: 10px;
+    text-align: left;
+    width: calc(100% - 20px);
+}
+.table-user-files th {
+    background-color: var(--primary-color-lighter);
+    color: var(--primary-color-contrast, var(--secondary-color));
+    padding: 12px 15px;
+    font-weight: bold;
+    border: 2px solid var(--secondary-color);
+}
+.table-user-files td {
+    background-color: var(--primary-color);
+    border: 0.5px solid var(--secondary-color);
+    padding: 12px 15px;
+    vertical-align: middle;
+    margin: 10px;
+}
+.table-user-files td a {
+    color: var(--secondary-color);
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.dialog-create-folder {
+    background-color: var(--primary-color-darker);
+    border-radius: 20px;
+    color: var(--secondary-color);
+    padding: 25px 50px;
+}
+.dialog-create-folder input {
+    background-color: var(--primary-color);
+    border: 2px solid var(--secondary-color);
+    border-radius: 10px;
+    color: var(--secondary-color);
+    padding: 5px 10px;
+}
+.dialog-create-folder input:focus {
+    outline: none;
+}
+.dialog-create-folder input[type="submit"] {
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    display: block;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 10px 20px;
+    text-align: center;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+    width: 100%;
+}
+.dialog-create-folder input[type="submit"]:hover {
+    background-color: var(--secondary-color-darker)
+}
+
+.div-user-files-nav {
+    display: flex;
+    flex-direction: row;
+}
