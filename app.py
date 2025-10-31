@@ -80,7 +80,13 @@ def upload_file():
     file.save(filepath)
 
     flash('File uploaded successfully.')
-    return redirect(url_for('dashboard'))
+    
+    if folder_id:
+        # stay inside the folder view
+        return redirect(url_for('dashboard', folder=folder_id))
+    else:
+        # return to root dashboard
+        return redirect(url_for('dashboard'))
 
 
 # ----------------------------
@@ -111,7 +117,13 @@ def create_folder():
     mysql.connection.commit()
 
     flash(f"Folder '{folder_name}' created successfully")
-    return redirect(url_for('dashboard'))
+    
+    if parent_id:
+        # stay inside the folder view
+        return redirect(url_for('dashboard', folder=parent_id))
+    else:
+        # return to root dashboard
+        return redirect(url_for('dashboard'))
 
 
 # ----------------------------
@@ -124,12 +136,18 @@ def rename_folder():
 
     folder_name = request.form.get('folder_name')
     folder_id = request.form.get('folder_id')  # optional, can be None
+    parent_id = request.form.get('parent_id')
 
     if folder_id in (None, '', 'None'):  # <-- convert invalid values
         flash("Folder ID can't be None")
         return redirect(url_for('dashboard'))
     else:
         folder_id = int(folder_id)  # ensure integer
+
+    if parent_id in (None, '', 'None'):  # <-- convert invalid values
+        parent_id = None
+    else:
+        parent_id = int(parent_id)  # ensure integer
 
     if not folder_name or folder_name.strip() == '':
         flash("Folder name cannot be empty")
@@ -144,7 +162,13 @@ def rename_folder():
     mysql.connection.commit()
 
     flash(f"Folder '{folder_name}' renamed successfully")
-    return redirect(url_for('dashboard'))
+    
+    if parent_id:
+        # stay inside the folder view
+        return redirect(url_for('dashboard', folder=parent_id))
+    else:
+        # return to root dashboard
+        return redirect(url_for('dashboard'))
 
 
 # ----------------------------
@@ -179,27 +203,6 @@ def download_folder(folder_id):
         mimetype='application/zip'
     )
 
-# def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
-#     # Get the current folder name
-#     cursor.execute("SELECT name FROM folders WHERE id = %s", (folder_id,))
-#     folder = cursor.fetchone()
-#     folder_name = folder['name'] if folder else f"folder_{folder_id}"
-#     current_path = os.path.join(base_path, folder_name)
-
-#     # Add all files in this folder
-#     cursor.execute("SELECT filename, filepath FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
-#     files = cursor.fetchall()
-
-#     for f in files:
-#         if os.path.exists(f['filepath']):
-#             zf.write(f['filepath'], arcname=os.path.join(current_path, f['filename']))
-
-#     # Recurse into subfolders
-#     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
-#     subfolders = cursor.fetchall()
-
-#     for sub in subfolders:
-#         add_folder_to_zip(cursor, zf, sub['id'], user_id, current_path)
 
 def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
     # Get the current folder name
@@ -231,41 +234,64 @@ def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
 # ----------------------------
 # DELETE FOLDER
 # ----------------------------
-@app.route("/delete_folder/<int:folder_id>", methods=["POST"])
-def delete_folder(folder_id):
+@app.route("/delete_folder", methods=["POST"])
+def delete_folder():
     if 'loggedin' not in session:
         return redirect(url_for('login'))
+
+    folder_id = request.form.get('folder_id')
+    parent_id = request.form.get('parent_id')
+
+    # Validate folder_id
+    if not folder_id or folder_id in ('None', ''):
+        flash("Folder ID can't be None", "error")
+        return redirect(url_for('dashboard'))
+    try:
+        folder_id = int(folder_id)
+    except ValueError:
+        flash("Invalid folder ID", "error")
+        return redirect(url_for('dashboard'))
+
+    # Convert parent_id
+    try:
+        parent_id = int(parent_id) if parent_id not in (None, '', 'None') else None
+    except ValueError:
+        parent_id = None
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT id FROM folders WHERE id = %s AND user_id = %s", (folder_id, session['id']))
     folder_record = cursor.fetchone()
 
     if not folder_record:
-        return "Folder not found or permission denied", 404
+        flash("Folder not found or permission denied", "error")
+        return redirect(url_for('dashboard'))
 
     try:
         delete_folder_recursive(cursor, folder_id, session['id'])
         mysql.connection.commit()
+        flash("Folder and its contents deleted successfully.", "success")
     except Exception as e:
         mysql.connection.rollback()
-        flash(f"Error deleting folder: {e}")
+        flash(f"Error deleting folder: {str(e)}", "error")
 
-    flash("Folder and contents deleted successfully.")
-    return redirect(url_for('dashboard'))
+    # Redirect appropriately
+    if parent_id:
+        return redirect(url_for('dashboard', folder=parent_id))
+    else:
+        return redirect(url_for('dashboard'))
+
 
 def delete_folder_recursive(cursor, folder_id, user_id):
+    # Delete subfolders recursively
     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
-    sub_folder_records = cursor.fetchall()
+    sub_folders = cursor.fetchall()
+    for sub in sub_folders:
+        delete_folder_recursive(cursor, sub['id'], user_id)
 
-    for folder in sub_folder_records:
-        delete_folder_recursive(cursor, folder['id'], user_id)
+    # Delete all files in this folder
+    cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
 
-    cursor.execute("SELECT id FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
-    sub_file_records = cursor.fetchall()
-
-    for file in sub_file_records:
-        cursor.execute("DELETE FROM files WHERE id = %s AND user_id = %s", (file['id'], user_id))
-
+    # Finally, delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
 
@@ -382,30 +408,63 @@ def download_file(file_id):
 # ----------------------------
 # DELETE FILE
 # ----------------------------
-@app.route("/delete_file/<int:file_id>", methods=["POST"])
-def delete_file(file_id):
+@app.route("/delete_file", methods=["POST"])
+def delete_file():
     if 'loggedin' not in session:
         return redirect(url_for('login'))
+
+    file_id = request.form.get('file_id')
+    parent_id = request.form.get('parent_id')
+
+    # Validate file_id
+    if not file_id or file_id in ('None', ''):
+        flash("File ID can't be None", "error")
+        return redirect(url_for('dashboard'))
+    try:
+        file_id = int(file_id)
+    except ValueError:
+        flash("Invalid file ID", "error")
+        return redirect(url_for('dashboard'))
+
+    # Convert parent_id
+    try:
+        parent_id = int(parent_id) if parent_id not in (None, '', 'None') else None
+    except ValueError:
+        parent_id = None
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT * FROM files WHERE id = %s AND user_id = %s", (file_id, session['id']))
     file_record = cursor.fetchone()
 
     if not file_record:
-        return "File not found or permission denied", 404
+        flash("File not found or permission denied", "error")
+        return redirect(url_for('dashboard'))
 
+    # Build file path
     ext = os.path.splitext(file_record['original_name'])[1]
     storage_name = f"{file_id}{ext}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], storage_name)
 
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    try:
+        # Delete physical file if it exists
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
-    cursor.execute("DELETE FROM files WHERE id = %s AND user_id = %s", (file_id, session['id']))
-    mysql.connection.commit()
+        # Delete database record
+        cursor.execute("DELETE FROM files WHERE id = %s AND user_id = %s", (file_id, session['id']))
+        mysql.connection.commit()
 
-    flash("File deleted successfully.")
-    return redirect(url_for('dashboard'))
+        flash("File deleted successfully.", "success")
+
+    except Exception as e:
+        mysql.connection.rollback()
+        flash(f"Error deleting file: {str(e)}", "error")
+
+    # Redirect back to the correct folder view
+    if parent_id:
+        return redirect(url_for('dashboard', folder=parent_id))
+    else:
+        return redirect(url_for('dashboard'))
 
 
 # ----------------------------

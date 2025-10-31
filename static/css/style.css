@@ -130,6 +130,7 @@ body {
     border-radius: 10px;
     color: var(--secondary-color);
     padding: 5px 10px;
+    width: calc(100% - 20px);
 }
 .login_register input:focus {
     outline: none;
@@ -214,6 +215,10 @@ body {
 .dialog-create-folder input[type="submit"]:hover {
     background-color: var(--secondary-color-darker)
 }
+.dialog-create-folder::backdrop {
+  backdrop-filter: blur(5px);
+  background: rgba(0,0,0,0.2);
+}
 
 .dialog-delete-account {
     background-color: var(--primary-color-darker);
@@ -238,6 +243,10 @@ body {
 }
 .dialog-delete-account input[type="submit"]:hover {
     background-color: var(--secondary-color-darker)
+}
+.dialog-delete-account::backdrop {
+  backdrop-filter: blur(5px);
+  background: rgba(0,0,0,0.2);
 }
 
 .div-user-files-nav {
