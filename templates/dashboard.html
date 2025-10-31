@@ -10,7 +10,24 @@
 
 <body>
     <header class="dashboard_header">
-        <h1>Welcome, {{ username }}!</h1>
+        <div>
+            <!-- Create Folder -->
+            <button class="button-delete-account" onclick="document.getElementById('deleteAccountDialog').showModal()">Delete
+                Account</button>
+            <dialog class="dialog-delete-account" id="deleteAccountDialog">
+                <form method="POST" action="{{ url_for('delete_account') }}">
+                    <h3>Are you sure you want to delete your account?</h3>
+                    <p>This will delete all your files and can't be undone!</p>
+                    <button class="button-dashboard" type="submit">Yes, I want to delete my account.</button>
+                    <button class="button-dashboard" type="button"
+                        onclick="this.closest('dialog').close()">Cancel</button>
+                </form>
+            </dialog>
+        </div>
+
+        <div>
+            <h1>Welcome, {{ username }}!</h1>
+        </div>
     </header>
 
     <div class="simple_container">
@@ -84,13 +101,16 @@
                             <a href="{{ url_for('download_folder', folder_id=folder.id) }}">
                                 <button class="button-dashboard" type="button">💾 Download</button>
                             </a>
-                            <button class="button-dashboard" onclick="document.getElementById('renameFolderDialog{{ folder.id }}').showModal()">🖊️ Rename</button>
+                            <button class="button-dashboard"
+                                onclick="document.getElementById('renameFolderDialog{{ folder.id }}').showModal()">🖊️
+                                Rename</button>
                             <dialog class="dialog-create-folder" id="renameFolderDialog{{ folder.id }}">
                                 <form method="POST" action="{{ url_for('rename_folder') }}">
                                     <input type="text" name="folder_name" placeholder="Folder name" required>
                                     <input type="hidden" name="folder_id" value="{{ folder.id }}">
                                     <button class="button-dashboard" type="submit">Rename Folder</button>
-                                    <button class="button-dashboard" type="button" onclick="this.closest('dialog').close()">Cancel</button>
+                                    <button class="button-dashboard" type="button"
+                                        onclick="this.closest('dialog').close()">Cancel</button>
                                 </form>
                             </dialog>
                         </td>

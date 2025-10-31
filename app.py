@@ -179,27 +179,27 @@ def download_folder(folder_id):
         mimetype='application/zip'
     )
 
-def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
-    # Get the current folder name
-    cursor.execute("SELECT name FROM folders WHERE id = %s", (folder_id,))
-    folder = cursor.fetchone()
-    folder_name = folder['name'] if folder else f"folder_{folder_id}"
-    current_path = os.path.join(base_path, folder_name)
+# def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
+#     # Get the current folder name
+#     cursor.execute("SELECT name FROM folders WHERE id = %s", (folder_id,))
+#     folder = cursor.fetchone()
+#     folder_name = folder['name'] if folder else f"folder_{folder_id}"
+#     current_path = os.path.join(base_path, folder_name)
 
-    # Add all files in this folder
-    cursor.execute("SELECT filename, filepath FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
-    files = cursor.fetchall()
+#     # Add all files in this folder
+#     cursor.execute("SELECT filename, filepath FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
+#     files = cursor.fetchall()
 
-    for f in files:
-        if os.path.exists(f['filepath']):
-            zf.write(f['filepath'], arcname=os.path.join(current_path, f['filename']))
+#     for f in files:
+#         if os.path.exists(f['filepath']):
+#             zf.write(f['filepath'], arcname=os.path.join(current_path, f['filename']))
 
-    # Recurse into subfolders
-    cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
-    subfolders = cursor.fetchall()
+#     # Recurse into subfolders
+#     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
+#     subfolders = cursor.fetchall()
 
-    for sub in subfolders:
-        add_folder_to_zip(cursor, zf, sub['id'], user_id, current_path)
+#     for sub in subfolders:
+#         add_folder_to_zip(cursor, zf, sub['id'], user_id, current_path)
 
 def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
     # Get the current folder name
@@ -462,6 +462,49 @@ def register_request():
         return redirect(url_for('login'))
 
     return render_template("register.html", msg=msg)
+
+
+@app.route("/delete_account", methods=["POST"])
+def delete_account():
+    if 'loggedin' not in session:
+        return redirect(url_for('login'))
+
+    user_id = session['id']
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    try:
+        # --- 1️⃣ Delete all user folders recursively ---
+        cursor.execute("SELECT id FROM folders WHERE user_id = %s AND parent_id IS NULL", (user_id,))
+        top_folders = cursor.fetchall()
+
+        for folder in top_folders:
+            delete_folder_recursive(cursor, folder['id'], user_id)
+
+        # --- 2️⃣ Delete all files not in folders (root-level files) ---
+        cursor.execute("SELECT id, original_name FROM files WHERE user_id = %s AND folder_id IS NULL", (user_id,))
+        root_files = cursor.fetchall()
+        for file in root_files:
+            ext = os.path.splitext(file['original_name'])[1]
+            storage_name = f"{file['id']}{ext}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], storage_name)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            cursor.execute("DELETE FROM files WHERE id = %s AND user_id = %s", (file['id'], user_id))
+
+        # --- 3️⃣ Delete user record ---
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+        mysql.connection.commit()
+
+        # --- 4️⃣ Clear session and redirect ---
+        session.clear()
+        flash("Your account and all associated data have been permanently deleted.")
+        return redirect(url_for('login'))
+
+    except Exception as e:
+        mysql.connection.rollback()
+        flash(f"Error deleting account: {e}")
+        return redirect(url_for('dashboard'))
 
 
 @app.route("/logout", methods=["POST"])

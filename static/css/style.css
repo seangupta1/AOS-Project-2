@@ -48,6 +48,26 @@ body {
     background-color: var(--secondary-color-darker)
 }
 
+.button-delete-account{
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    margin: 5px 10px;
+    padding: 10px 20px;
+    position: absolute;
+    right: 5px;
+    text-decoration: none;
+    top: 5px;
+    transition: background-color 0.2s ease;
+}
+.button-delete-account:hover {
+    background-color: var(--secondary-color-darker)
+}
+
 .general_container {
     align-self: center;
     text-align: center;
@@ -91,6 +111,7 @@ body {
     border: 3px solid var(--secondary-color);
     box-sizing: border-box;
     height: fit-content;
+    position: relative;
     text-align: center;
     width: 100%;
 }
@@ -191,6 +212,31 @@ body {
     width: 100%;
 }
 .dialog-create-folder input[type="submit"]:hover {
+    background-color: var(--secondary-color-darker)
+}
+
+.dialog-delete-account {
+    background-color: var(--primary-color-darker);
+    border-radius: 20px;
+    color: var(--secondary-color);
+    padding: 25px 50px;
+}
+.dialog-delete-account input[type="submit"] {
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    display: block;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 10px 20px;
+    text-align: right;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+    width: 100%;
+}
+.dialog-delete-account input[type="submit"]:hover {
     background-color: var(--secondary-color-darker)
 }
 
