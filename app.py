@@ -1,24 +1,50 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, make_response, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, make_response, send_file, jsonify
 from flask_mysqldb import MySQL
 import MySQLdb.cursors
 import re
 import os
 import mimetypes
 from werkzeug.utils import secure_filename
+import psutil
+import logging
+from functools import wraps
+import threading
+import time
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'password'
 
+# --- START LOGGING CONFIG ---
+log_file = '/tmp/nas_app.log'
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+# --- END LOGGING CONFIG ---
+
 # MySQL configuration
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'seangupta'
-app.config['MYSQL_PASSWORD'] = 'password'
-app.config['MYSQL_DB'] = 'nas_web'
+# MySQL configuration
+app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
+app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
+app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
+app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
+
+# Update the Upload folder to be flexible
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 
 mysql = MySQL(app)
 
-# Upload configuration
-UPLOAD_FOLDER = '/var/www/uploads/'
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'loggedin' not in session or session.get('role') != 'admin':
+            flash("You do not have permission to access this page.", "error")
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -80,6 +106,7 @@ def upload_file():
     file.save(filepath)
 
     flash('File uploaded successfully.')
+    app.logger.info(f"User '{session['username']}' uploaded file '{original_name}'")
     
     if folder_id:
         # stay inside the folder view
@@ -497,8 +524,10 @@ def login_request():
         session['id'] = account['id']
         session['username'] = account['username']
         session['role'] = account['role']
+        app.logger.info(f"User '{username}' logged in successfully.") 
         return redirect(url_for('dashboard'))
     else:
+        app.logger.warning(f"Failed login attempt for username: {username}")
         return render_template("login.html", msg="Invalid username or password.")
 
 
@@ -571,6 +600,176 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+# ----------------------------
+# SYSTEM MONITORING API
+# ----------------------------
+
+def bytes_to_gb(bytes_val):
+    gb = bytes_val / (1024**3); return round(gb, 2)
+
+@app.route("/api/stats_history")
+@admin_required
+def api_stats_history():
+    """Provides system stats from the last hour."""
+    try:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        # Get all stats from the last hour, ordered by time
+        cursor.execute("""
+            SELECT timestamp, cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps 
+            FROM system_stats 
+            WHERE timestamp > (NOW() - INTERVAL 1 HOUR)
+            ORDER BY timestamp ASC
+        """)
+        stats = cursor.fetchall()
+
+        # We need to format the data for Chart.js
+        # It wants "labels" (timestamps) and "datasets" (the numbers)
+        formatted_data = {
+            "labels": [s['timestamp'].strftime('%I:%M:%S %p') for s in stats],
+            "cpu": [s['cpu_percent'] for s in stats],
+            "mem": [s['mem_percent'] for s in stats],
+            "net_sent": [s['net_sent_mbps'] for s in stats],
+            "net_recv": [s['net_recv_mbps'] for s in stats],
+        }
+        return jsonify(formatted_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/stats_snapshot")
+def api_stats_snapshot():
+    """Provides a single, current snapshot of system stats."""
+    try:
+        # Use root '/' for disk usage, as it's more reliable in Docker
+        disk = psutil.disk_usage('/') 
+
+        stats = {
+            "cpu_percent": psutil.cpu_percent(interval=None),
+            "mem_percent": psutil.virtual_memory().percent,
+            "disk_percent": disk.percent,
+            "disk_used_gb": bytes_to_gb(disk.used),
+            "disk_total_gb": bytes_to_gb(disk.total)
+        }
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/logs")
+@admin_required
+def api_logs():
+    """Provides last 50 lines of the application log as JSON objects."""
+    if 'loggedin' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    log_file_path = '/tmp/nas_app.log' # <-- The correct path
+    logs = []
+
+    try:
+        if not os.path.exists(log_file_path):
+             # Create the file if it doesn't exist
+            with open(log_file_path, 'a') as f:
+                f.write("Log file created.\n")
+            return jsonify({"logs": []})
+
+        with open(log_file_path, 'r') as f:
+            # Read all lines and get the last 50
+            lines = f.readlines()
+            last_50_lines = lines[-50:]
+            last_50_lines.reverse() # Show newest first
+            
+            for line in last_50_lines:
+                try:
+                    # Parse the log line based on our format:
+                    # '2025-11-04 11:10:00,123 - INFO - User 'admin' logged in'
+                    parts = line.split(' - ', 2)
+                    logs.append({
+                        "timestamp": parts[0].strip(),
+                        "level": parts[1].strip(),
+                        "message": parts[2].strip()
+                    })
+                except Exception:
+                    # If a line doesn't match, just add it as a raw message
+                    if line.strip():
+                        logs.append({
+                            "timestamp": "N/A",
+                            "level": "RAW",
+                            "message": line.strip()
+                        })
+
+        return jsonify({"logs": logs})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/logs")
+@admin_required
+def logs():
+    """Serves the dedicated log page."""
+    if 'loggedin' not in session:
+        return redirect(url_for('login'))
+    
+    return render_template("logs.html")
+
+# --- BACKGROUND STATS COLLECTOR ---
+
+def get_network_io():
+    """Returns network I/O in Megabits per second (Mbps)."""
+    # Get counters now
+    counter_now = psutil.net_io_counters()
+    time.sleep(1) # Wait 1 second
+    # Get counters after 1 second
+    counter_later = psutil.net_io_counters()
+
+    # Calculate bytes per second
+    sent_bps = counter_later.bytes_sent - counter_now.bytes_sent
+    recv_bps = counter_later.bytes_recv - counter_now.bytes_recv
+
+    # Convert bytes/sec to Megabits/sec
+    sent_mbps = (sent_bps * 8) / (1024 * 1024)
+    recv_mbps = (recv_bps * 8) / (1024 * 1024)
+
+    return round(sent_mbps, 2), round(recv_mbps, 2)
+
+def stats_collector_loop():
+    """A background thread loop that collects stats every 10 seconds."""
+    print("Starting background stats collector thread...")
+    with app.app_context(): # We need an app context to access the database
+        while True:
+            try:
+                cpu = psutil.cpu_percent(interval=None)
+                mem = psutil.virtual_memory().percent
+                net_sent, net_recv = get_network_io()
+
+                # Connect to DB and insert
+                cursor = mysql.connection.cursor()
+                cursor.execute("""
+                    INSERT INTO system_stats (cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps)
+                    VALUES (%s, %s, %s, %s)
+                """, (cpu, mem, net_sent, net_recv))
+                mysql.connection.commit()
+
+                # Also, clean up old data (older than 1 hour)
+                cursor.execute("""
+                    DELETE FROM system_stats 
+                    WHERE timestamp < (NOW() - INTERVAL 1 HOUR)
+                """)
+                mysql.connection.commit()
+                cursor.close()
+
+            except Exception as e:
+                print(f"Error in stats collector thread: {e}")
+
+            time.sleep(10) # Wait 10 seconds before next collection
+
+# --- START THE THREAD ---
+collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
+collector_thread.start()
+
+@app.route("/monitoring")
+@admin_required
+def monitoring():
+    """Serves the dedicated monitoring chart page."""
+    return render_template("monitoring.html")
 
 if __name__ == "__main__":
     app.run(debug=True)

@@ -253,3 +253,14 @@ body {
     display: flex;
     flex-direction: row;
 }
+
+.table-user-files tbody tr.log-warning td {
+    background-color: #6e4d00; /* A dark gold/orange */
+    font-weight: bold;
+    color: #FFD100; /* UMKC Gold */
+}
+.table-user-files tbody tr.log-error td {
+    background-color: #5c0000; /* A dark red */
+    font-weight: bold;
+    color: #ffaaaa;
+}
