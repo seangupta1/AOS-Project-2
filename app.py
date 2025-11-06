@@ -280,7 +280,6 @@ def delete_folder():
     else:
         return redirect(url_for('dashboard'))
 
-
 def delete_folder_recursive(cursor, folder_id, user_id):
     # Delete subfolders recursively
     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
@@ -288,10 +287,28 @@ def delete_folder_recursive(cursor, folder_id, user_id):
     for sub in sub_folders:
         delete_folder_recursive(cursor, sub['id'], user_id)
 
-    # Delete all files in this folder
+    # Fetch all files in this folder
+    cursor.execute("SELECT id, original_name FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
+    files = cursor.fetchall()
+
+    for file_record in files:
+        file_id = file_record['id']
+        ext = os.path.splitext(file_record['original_name'])[1]
+        storage_name = f"{file_id}{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, storage_name)
+
+        # Try to delete the file from disk
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"Deleted file: {filepath}")
+        except Exception as e:
+            print(f"Error deleting {filepath}: {e}")
+
+    # Delete file records from the DB
     cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
 
-    # Finally, delete the folder itself
+    # Delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
 
