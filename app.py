@@ -10,7 +10,7 @@ import logging
 from functools import wraps
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -36,6 +36,9 @@ app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 
 mysql = MySQL(app)
+
+MAX_ATTEMPTS = 3
+LOCKOUT_MINUTES = 2
 
 def admin_required(f):
     @wraps(f)
@@ -519,17 +522,69 @@ def login_request():
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
     account = cursor.fetchone()
+    now = datetime.now()
 
-    if account and check_password_hash(account['password'], password):
-        session['loggedin'] = True
-        session['id'] = account['id']
-        session['username'] = account['username']
-        session['role'] = account['role']
-        app.logger.info(f"User '{username}' logged in successfully.") 
-        return redirect(url_for('dashboard'))
+    if account:
+        cursor.execute('SELECT * FROM login_attempts WHERE user_id = %s', (account['id'],))
+        attempt_record = cursor.fetchone()
+
+        if attempt_record:
+            attempts = attempt_record['attempts']
+            last_failed = attempt_record['last_failed']
+
+            if last_failed and isinstance(last_failed, str):
+                last_failed = datetime.strptime(last_failed, '%Y-%m-%d %H:%M:%S')
+
+            lockout_end = (last_failed + timedelta(minutes=LOCKOUT_MINUTES)) if last_failed else None
+            if lockout_end and now < lockout_end and attempts >= MAX_ATTEMPTS:
+                remaining = int((lockout_end - now).total_seconds() // 60) + 1
+                msg = f"Account locked. Try again in {remaining} minute(s)."
+                return render_template("login.html", msg=msg)
+        else:
+            cursor.execute("""
+                INSERT INTO login_attempts (user_id, attempts, last_failed)
+                VALUES (%s, 0, NULL)
+            """, (account['id'],))
+            mysql.connection.commit()
+            attempts = 0
+            last_failed = None
+
+        if check_password_hash(account['password'], password):
+            # Reset login attempts
+            cursor.execute("""
+                UPDATE login_attempts
+                SET attempts = 0, last_failed = NULL
+                WHERE user_id = %s
+            """, (account['id'],))
+            mysql.connection.commit()
+
+            session['loggedin'] = True
+            session['id'] = account['id']
+            session['username'] = account['username']
+            session['role'] = account['role']
+            app.logger.info(f"User '{username}' logged in successfully.") 
+            return redirect(url_for('dashboard'))
+        else:
+            # Increment failed login attempts
+            attempts += 1
+            cursor.execute("""
+                UPDATE login_attempts
+                SET attempts = %s, last_failed = %s
+                WHERE user_id = %s
+            """, (attempts, now, account['id']))
+            mysql.connection.commit()
+
+            if attempts >= MAX_ATTEMPTS:
+                msg = f"Account locked due to too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes."
+            else:
+                remaining = MAX_ATTEMPTS - attempts
+                msg = f"Invalid password. {remaining} attempt(s) remaining."
+
+            return render_template("login.html", msg=msg)
     else:
         app.logger.warning(f"Failed login attempt for username: {username}")
         return render_template("login.html", msg="Invalid username or password.")
+    
 
 
 @app.route("/register_request", methods=["POST"])
