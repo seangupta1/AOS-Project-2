@@ -67,6 +67,16 @@
         </div>
     </div>
 
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for msg in messages %}
+            <p>{{ msg }}</p>
+        {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+    
     <div class="user-files-container">
         <div>
             <div class="div-user-files-nav">

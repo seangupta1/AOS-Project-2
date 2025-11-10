@@ -264,3 +264,14 @@ body {
     font-weight: bold;
     color: #ffaaaa;
 }
+
+.flash-messages {
+    background-color: #003b7a;
+    box-shadow: 0 4px 6px black;
+    color: #ffffff;
+    padding: 5px;
+    margin: 10px;
+    border-radius: 5px;
+    text-align: center;
+    width: fit-content;
+}

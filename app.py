@@ -30,7 +30,6 @@ app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
 app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 # Update the Upload folder to be flexible
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
@@ -39,6 +38,7 @@ mysql = MySQL(app)
 
 MAX_ATTEMPTS = 3
 LOCKOUT_MINUTES = 2
+MAX_FILE_SIZE = 10 * 1024 * 1024
 
 def admin_required(f):
     @wraps(f)
@@ -80,6 +80,14 @@ def upload_file():
     if not allowed_file(file.filename):
         flash('Invalid file type.')
         return redirect(request.url)
+
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+
+    if file_size > MAX_FILE_SIZE:
+        flash(f"File is too large. Maximum allowed size is {MAX_FILE_SIZE // (1024*1024)} MB.")
+        return redirect(url_for('dashboard'))
 
     user_id = session['id']
     
@@ -827,11 +835,6 @@ collector_thread.start()
 def monitoring():
     """Serves the dedicated monitoring chart page."""
     return render_template("monitoring.html")
-
-@app.errorhandler(413)
-def handle_large_file(e):
-    flash("File is too large. Max allowed size is 10 MB.", "error")
-    return redirect(url_for('dashboard'))
 
 if __name__ == "__main__":
     app.run(debug=True)
