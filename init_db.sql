@@ -50,20 +50,19 @@ CREATE TABLE IF NOT EXISTS system_stats (
 );
 
 -- Login attempts table
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
     user_id INT NOT NULL,
     attempts INT DEFAULT 0,
     last_failed TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (user_id),
-    FOREIGN KEY (user_id) REFERENCE users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Configuration Backup
-CREATE TABLE app_config (
+CREATE TABLE IF NOT EXISTS app_config (
     config_key VARCHAR(100) PRIMARY KEY,
     config_value TEXT NOT NULL
 );
 
 INSERT INTO users (username, password, role)
-VALUES ('admin', 'pbkdf2:sha256:260000$0WbCMc1zvR9JCIy5$ae02306877d84d8065c66d4644b20978d4978983d44a12f004dfa823428be018
-', 'admin');
+VALUES ('admin', 'pbkdf2:sha256:1000000$HbP24P9IofnVBLHG$fa7a3c9ec274394fc122e903683bd86bf208e69902800082b71cd9804dc9f3f3', 'admin');

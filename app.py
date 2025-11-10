@@ -54,8 +54,8 @@ backup_manager = BackupManager(
     config_files_dir=CONFIG_FILES_DIR
 )
 
-MAX_ATTEMPTS = 3
-LOCKOUT_MINUTES = 2
+MAX_ATTEMPTS = 999
+LOCKOUT_MINUTES = 0
 
 def admin_required(f):
     @wraps(f)
@@ -618,7 +618,7 @@ def register_request():
     elif not re.match(r'^[A-Za-z0-9]+$', username):
         msg = 'Username must contain only letters and numbers!'
     else:
-        hashed_password = generate_password_hash(password)
+        hashed_password = generate_password_hash(password, method="pbkdf2:sha256:260000")
         cursor.execute('INSERT INTO users (username, password, role) VALUES (%s, %s, %s)', (username, hashed_password, 'user'))
         mysql.connection.commit()
         return redirect(url_for('login'))
@@ -838,6 +838,21 @@ def api_update_configs():
         if key in data:
             configs[key] = bool(data[key])
 
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    for key in data.keys():
+        # Update in-memory dict
+        configs[key] = bool(data[key])
+
+        # Upsert into database
+        cursor.execute("""
+            INSERT INTO app_config (config_key, config_value)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE config_value = %s
+        """, (key, configs[key], configs[key]))
+
+    mysql.connection.commit()
+
 
     if 'auto_backup' in data:
         if configs['auto_backup']:
@@ -899,8 +914,8 @@ def stats_collector_loop():
             time.sleep(10) # Wait 10 seconds before next collection
 
 # --- START THE THREAD ---
-collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
-collector_thread.start()
+#collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
+#collector_thread.start()
 
 @app.route("/monitoring")
 @admin_required
