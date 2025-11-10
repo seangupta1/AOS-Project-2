@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS system_stats (
 );
 
 -- Login attempts table
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
     user_id INT NOT NULL,
     attempts INT DEFAULT 0,
     last_failed TIMESTAMP NULL DEFAULT NULL,
