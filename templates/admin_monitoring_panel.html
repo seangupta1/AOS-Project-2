@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Monitoring Panel</title> <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+<body>
+    <header class="dashboard_header">
+        <div>
+            <a href="{{ url_for('dashboard') }}" style="text-decoration: none; position: absolute; left: 5px; top: 5px;">
+                <button class="button-dashboard" type="button">&larr; Back to Dashboard</button>
+            </a>
+        </div>
+        <div>
+            <h1>Admin Monitoring Panel</h1> </div>
+    </header>
+
+    <div class="admin-chart-grid">
+        <div class="admin-box">
+            <h2>CPU Usage (%)</h2>
+            <canvas id="cpuChart"></canvas>
+        </div>
+        <div class="admin-box">
+            <h2>Memory Usage (%)</h2>
+            <canvas id="memChart"></canvas>
+        </div>
+        <div class="admin-box">
+            <h2>Network Traffic (Mbps)</h2>
+            <canvas id="netChart"></canvas>
+        </div>
+        <div class="admin-box">
+            <h2>Disk I/O (MB/s)</h2>
+            <canvas id="diskChart"></canvas>
+        </div>
+    </div>
+
+    <div class="admin-info-grid">
+        <div class="admin-box" style="height: auto;">
+            <h2>System Overview</h2>
+            <div id="system-overview-content">
+                <p><strong>Uptime:</strong> <span id="uptime-status">Loading...</span></p>
+                <p><strong>System Disk Usage:</strong></p>
+                <div class="quota-bar-bg">
+                    <div id="disk-bar-fg" class="quota-bar-fg" style="width: 0%;">
+                        <span id="disk-bar-text">0%</span>
+                    </div>
+                </div>
+                <small id="disk-usage-text">Loading...</small>
+            </div>
+        </div>
+
+        <div class="admin-box" style="height: auto; max-height: 400px; overflow-y: auto;">
+            <h2>System Alerts</h2>
+            <p style="font-size: 0.8em; margin-top: -10px;">Showing last 100. Refreshes every 30 seconds.</p>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">Timestamp</th>
+                        <th style="width: 10%;">Level</th>
+                        <th>Message</th>
+                        <th style="width: 10%;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="alerts-body">
+                    <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="admin-box" style="height: auto; max-height: 400px; overflow-y: auto;">
+            <h2>User Storage Report</h2>
+            <table class="table-user-files">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Usage</th>
+                        <th>Quota (GB)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users_report %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.role }}</td>
+                        <td>
+                            <div style="background-color: #eee; border-radius: 5px; border: 1px solid #ccc; width: 100%;">
+                                <div style="background-color: #0d6efd; width: {{ user.percent }}%; border-radius: 3px; color: white; text-align: right; padding-right: 5px; min-height: 20px; line-height: 20px; white-space: nowrap;">
+                                    {{ user.percent }}%
+                                </div>
+                            </div>
+                            <small style="color: var(--secondary-color);">{{ user.usage_gb }} GB / {{ user.quota_gb }} GB</small>
+                        </td>
+                        <form action="{{ url_for('update_quota') }}" method="POST" style="display: contents;">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <td>
+                                <input type="number" name="new_quota" value="{{ user.quota_gb }}" min="1">
+                            </td>
+                            <td>
+                                <button type="submit" class="button-dashboard">Update</button>
+                            </td>
+                        </form>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+
+    <div class="admin-full-width-container">
+        <h2>Running Processes</h2>
+        <p style="font-size: 0.8em; margin-top: -10px;">Top processes sorted by CPU. Refreshes every 5 seconds.</p>
+        <div class="admin-scroll-box">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>PID</th>
+                        <th>User</th>
+                        <th>Name</th>
+                        <th>CPU %</th>
+                        <th>Memory %</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="process-body">
+                    <tr><td colspan="6" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="admin-full-width-container">
+        <h2>Active Network Connections</h2>
+        <p style="font-size: 0.8em; margin-top: -10px;">Refreshes every 10 seconds.</p>
+        <div class="admin-scroll-box">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Local Address</th>
+                        <th>Remote Address</th>
+                        <th>Status</th>
+                        <th>PID</th>
+                    </tr>
+                </thead>
+                <tbody id="connections-body">
+                    <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="admin-full-width-container">
+        <h2>Logged-in System Users</h2>
+        <p style="font-size: 0.8em; margin-top: -10px;">Refreshes every 10 seconds.</p>
+        <div class="admin-scroll-box">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Terminal</th>
+                        <th>Host</th>
+                        <th>Login Time</th>
+                    </tr>
+                </thead>
+                <tbody id="users-body">
+                    <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="admin-full-width-container">
+        <h2>System Logs (Last 50 Entries)</h2>
+         <p style="font-size: 0.8em; margin-top: -10px;">Refreshes every 10 seconds.</p>
+        <div class="admin-scroll-box">
+            <table id="logTable" class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Level</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody id="logTableBody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+
+    <script>
+        // Chart.js configuration
+        let cpuChart, memChart, netChart, diskChart;
+        const chartOptions = {
+            layout: { 
+                padding: {
+                    bottom: 10 
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'minute', tooltipFormat: 'hh:mm:ss a' },
+                    ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7, color: '#FFD100' },
+                    grid: { color: 'rgba(255, 209, 0, 0.2)' }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: '#FFD100' },
+                    grid: { color: 'rgba(255, 209, 0, 0.2)' }
+                }
+            },
+            plugins: { legend: { labels: { color: '#FFD100' } } },
+            animation: { duration: 400 },
+            maintainAspectRatio: false,
+            responsive: true,
+            interaction: { intersect: false, mode: 'index', }
+        };
+
+        async function fetchSystemOverview() {
+            try {
+                const response = await fetch("{{ url_for('api_system_overview') }}");
+                if (!response.ok) {
+                    document.getElementById('uptime-status').textContent = 'Error';
+                    return;
+                }
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error('Error fetching overview:', data.error);
+                    return;
+                }
+
+                document.getElementById('uptime-status').textContent = data.uptime_string;
+                document.getElementById('disk-usage-text').textContent = `${data.disk_used_gb} GB / ${data.disk_total_gb} GB Used`;
+                
+                const diskPercent = data.disk_percent.toFixed(1);
+                const diskBarFg = document.getElementById('disk-bar-fg');
+                diskBarFg.style.width = `${diskPercent}%`;
+                
+                // Change color if usage is high
+                if (data.disk_percent > 90) {
+                    diskBarFg.style.backgroundColor = '#dc3545'; // Red
+                } else if (data.disk_percent > 75) {
+                    diskBarFg.style.backgroundColor = '#ffc107'; // Yellow
+                } else {
+                    diskBarFg.style.backgroundColor = '#0d6efd'; // Blue
+                }
+                
+                // Update text
+                document.getElementById('disk-bar-text').textContent = `${diskPercent}%`;
+
+            } catch (error) {
+                console.error('Error fetching system overview:', error);
+                document.getElementById('uptime-status').textContent = 'Error fetching data.';
+            }
+        }
+
+        // Initialize all charts
+        document.addEventListener('DOMContentLoaded', () => {
+            cpuChart = new Chart(document.getElementById('cpuChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'CPU %', data: [], borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.5)', tension: 0.1, fill: true }] },
+                options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, max: 100 } } }
+            });
+            memChart = new Chart(document.getElementById('memChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Memory %', data: [], borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.5)', tension: 0.1, fill: true }] },
+                options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, max: 100 } } }
+            });
+            netChart = new Chart(document.getElementById('netChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Sent (Mbps)', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.1 },
+                        { label: 'Received (Mbps)', data: [], borderColor: 'rgb(153, 102, 255)', tension: 0.1 }
+                    ]
+                },
+                options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, max: undefined, grace: '10%' } } }
+            });
+            diskChart = new Chart(document.getElementById('diskChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Read (MB/s)', data: [], borderColor: 'rgb(255, 159, 64)', tension: 0.1 },
+                        { label: 'Write (MB/s)', data: [], borderColor: 'rgb(200, 200, 200)', tension: 0.1 }
+                    ]
+                },
+                options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, max: undefined, grace: '10%' } } }
+            });
+
+            // Re-instating all the polling intervals
+            fetchMonitoringData();
+            fetchLogData();
+            fetchSystemOverview();
+            setInterval(fetchMonitoringData, 10000);
+            setInterval(fetchLogData, 10000); 
+            setInterval(fetchSystemOverview, 30000);
+
+            fetchAndDisplayProcesses();
+            fetchNetworkAndUsers();
+            fetchAndDisplayAlerts();
+            // fetchAndDisplayServices(); // This function was missing from your original HTML file
+            
+            setInterval(fetchAndDisplayProcesses, 5000);
+            setInterval(fetchNetworkAndUsers, 10000);
+            setInterval(fetchAndDisplayAlerts, 30000);
+            // setInterval(fetchAndDisplayServices, 15000);
+            
+            document.body.addEventListener('click', function(event) {
+                if (event.target.classList.contains('btn-dismiss')) {
+                    dismissAlert(event);
+                }
+            });
+        });
+        
+        async function fetchMonitoringData() {
+            try {
+                const response = await fetch("{{ url_for('api_stats_history') }}");
+                if (!response.ok) return;
+                const data = await response.json();
+                const labels = data.labels.map(ts => new Date(ts));
+
+                cpuChart.data.labels = labels;
+                cpuChart.data.datasets[0].data = data.cpu;
+                cpuChart.update();
+
+                memChart.data.labels = labels;
+                memChart.data.datasets[0].data = data.mem;
+                memChart.update();
+
+                netChart.data.labels = labels;
+                netChart.data.datasets[0].data = data.net_sent;
+                netChart.data.datasets[1].data = data.net_recv;
+                netChart.update();
+                
+                diskChart.data.labels = labels;
+                diskChart.data.datasets[0].data = data.disk_read;
+                diskChart.data.datasets[1].data = data.disk_write;
+                diskChart.update();
+
+            } catch (error) {
+                console.error('Error fetching monitoring data:', error);
+            }
+        }
+        
+        async function fetchLogData() {
+            try {
+                const response = await fetch("{{ url_for('api_logs') }}");
+                if (!response.ok) return;
+                const data = await response.json();
+                
+                const tableBody = document.getElementById('logTableBody');
+                tableBody.innerHTML = ''; // Clear old logs
+                
+                if (data.logs) {
+                    data.logs.forEach(log => {
+                        const row = tableBody.insertRow();
+                        row.insertCell(0).textContent = log.timestamp;
+                        row.insertCell(1).textContent = log.level;
+                        row.insertCell(2).textContent = log.message;
+                    });
+                } else {
+                     tableBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No logs found.</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error fetching log data:', error);
+                document.getElementById('logTableBody').innerHTML = '<tr><td colspan="3" style="text-align:center; color:red;">Error loading logs.</td></tr>';
+            }
+        }
+
+        function fetchAndDisplayProcesses() {
+            fetch("{{ url_for('api_processes') }}")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                        document.getElementById('process-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Error loading processes.</td></tr>';
+                        return;
+                    }
+
+                    const processBody = document.getElementById('process-body');
+                    processBody.innerHTML = ''; // Clear old data
+
+                    if (!data.processes || data.processes.length === 0) {
+                        processBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No processes found.</td></tr>';
+                        return;
+                    }
+
+                    data.processes.forEach(proc => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${proc.pid}</td>
+                            <td>${proc.username}</td>
+                            <td>${proc.name}</td>
+                            <td>${proc.cpu_percent.toFixed(2)}</td>
+                            <td>${proc.memory_percent.toFixed(2)}</td>
+                            <td>${proc.status}</td>
+                        `;
+                        processBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching processes:', error);
+                    document.getElementById('process-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Error fetching processes.</td></tr>';
+                });
+        }
+
+        function fetchNetworkAndUsers() {
+            fetch("{{ url_for('api_network_stats') }}")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                        document.getElementById('connections-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error loading connections.</td></tr>';
+                        document.getElementById('users-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error loading users.</td></tr>';
+                        return;
+                    }
+
+                    // --- Populate Connections Table ---
+                    const connBody = document.getElementById('connections-body');
+                    connBody.innerHTML = ''; // Clear old data
+                    if (data.connections && data.connections.length > 0) {
+                        data.connections.forEach(conn => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${conn.laddr_ip}:${conn.laddr_port}</td>
+                                <td>${conn.raddr_ip}:${conn.raddr_port}</td>
+                                <td>${conn.status}</td>
+                                <td>${conn.pid || 'N/A'}</td>
+                            `;
+                            connBody.appendChild(row);
+                        });
+                    } else {
+                        connBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No active connections found.</td></tr>';
+                    }
+
+                    // --- Populate Users Table ---
+                    const userBody = document.getElementById('users-body');
+                    userBody.innerHTML = ''; // Clear old data
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach(user => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${user.name}</td>
+                                <td>${user.terminal || 'N/A'}</td>
+                                <td>${user.host || 'N/A'}</td>
+                                <td>${user.started}</td>
+                            `;
+                            userBody.appendChild(row);
+                        });
+                    } else {
+                        userBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No users currently logged in.</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching network/user stats:', error);
+                    document.getElementById('connections-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error fetching connections.</td></tr>';
+                    document.getElementById('users-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error fetching users.</td></tr>';
+                });
+        }
+
+        function fetchAndDisplayAlerts() {
+            fetch("{{ url_for('api_alerts') }}")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                        document.getElementById('alerts-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error loading alerts.</td></tr>';
+                        return;
+                    }
+
+                    const alertsBody = document.getElementById('alerts-body');
+                    alertsBody.innerHTML = ''; // Clear old data
+
+                    if (!data.alerts || data.alerts.length === 0) {
+                        alertsBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No alerts found.</td></tr>';
+                        return;
+                    }
+
+                    data.alerts.forEach(alert => {
+                        const row = document.createElement('tr');
+                        row.className = `alert-row ${alert.is_read ? 'is-read' : ''}`;
+                        
+                        const timestamp = new Date(alert.timestamp).toLocaleString();
+                        
+                        row.innerHTML = `
+                            <td>${timestamp}</td>
+                            <td class="alert-level-${alert.level}">${alert.level}</td>
+                            <td>${alert.message}</td>
+                            <td>
+                                <button class="btn-dismiss" data-id="${alert.id}" ${alert.is_read ? 'disabled' : ''}>
+                                    ${alert.is_read ? 'Dismissed' : 'Dismiss'}
+                                </button>
+                            </td>
+                        `;
+                        alertsBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching alerts:', error);
+                    document.getElementById('alerts-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error fetching alerts.</td></tr>';
+                });
+        }
+
+        async function dismissAlert(event) {
+            const button = event.target;
+            const alertId = button.dataset.id;
+            
+            try {
+                const response = await fetch("{{ url_for('api_alert_dismiss') }}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: alertId })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    button.disabled = true;
+                    button.textContent = 'Dismissed';
+                    button.closest('tr').classList.add('is-read');
+                } else {
+                    console.error('Failed to dismiss alert:', data.error);
+                }
+            } catch (error) {
+                console.error('Error dismissing alert:', error);
+            }
+        }
+        
+
+    </script>
+</body>
+</html>
