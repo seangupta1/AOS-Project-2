@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
+from backup_manager import BackupManager
 
 app = Flask(__name__)
 app.secret_key = 'password'
@@ -32,10 +33,26 @@ app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
 app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
 
+# Backup directories
+DB_BACKUP_DIR = os.environ.get('DB_BACKUP_DIR', './db_backups')
+CONFIG_BACKUP_DIR = os.environ.get('CONFIG_BACKUP_DIR', './config_backups')
+CONFIG_FILES_DIR = os.environ.get('CONFIG_FILES_DIR', './config_files')
+
 # Update the Upload folder to be flexible
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 
 mysql = MySQL(app)
+
+# Initialize BackupManager
+backup_manager = BackupManager(
+    db_name=app.config['MYSQL_DB'],
+    db_user=app.config['MYSQL_USER'],
+    db_password=app.config['MYSQL_PASSWORD'],
+    db_host=app.config["MYSQL_HOST"],
+    db_backup_dir=DB_BACKUP_DIR,
+    config_backup_dir=CONFIG_BACKUP_DIR,
+    config_files_dir=CONFIG_FILES_DIR
+)
 
 MAX_ATTEMPTS = 3
 LOCKOUT_MINUTES = 2
@@ -766,6 +783,69 @@ def logs():
         return redirect(url_for('login'))
     
     return render_template("logs.html")
+
+# ----------------------------
+# BACKUPS API
+# ----------------------------
+
+@app.route('/admin/configurations')
+def configurations_page():
+    return render_template("configurations.html")
+
+configs = {
+    "email_notifications": True,
+    "auto_backup": False,
+    "dark_mode": False
+}
+
+@app.route('/backup/db', methods=['GET'])
+def manual_db_backup():
+    backup_file = backup_manager.backup_database()
+    if backup_file:
+        return send_file(backup_file, as_attachment=True)
+    return jsonify({"status": "error", "message": "DB backup failed"}), 500
+
+@app.route('/backup/config', methods=['GET'])
+def manual_config_backup():
+    backup_file = backup_manager.backup_configurations()
+    if backup_file:
+        return send_file(backup_file, as_attachment=True)
+    return jsonify({"status": "error", "message": "Config backup failed"}), 500
+
+@app.route('/backup/start', methods=['GET'])
+def start_auto_backup():
+    backup_manager.start_auto_backup(interval_minutes=1)
+    return jsonify({"status": "success", "message": "Automatic backups started every minute"})
+
+@app.route('/backup/stop', methods=['GET'])
+def stop_auto_backup():
+    backup_manager.stop_auto_backup()
+    return jsonify({"status": "success", "message": "Automatic backups stopped"})
+
+@app.route('/api/get_configs', methods=['GET'])
+def api_get_configs():
+    """Return current configuration values."""
+    return jsonify({"configs": configs})
+
+@app.route('/api/update_configs', methods=['POST'])
+def api_update_configs():
+    """Update configuration values from admin page."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    for key in configs.keys():
+        if key in data:
+            configs[key] = bool(data[key])
+
+
+    if 'auto_backup' in data:
+        if configs['auto_backup']:
+            backup_manager.start_auto_backup(interval_minutes=1)
+        else:
+            backup_manager.stop_auto_backup()
+
+    return jsonify({"success": True})
 
 # --- BACKGROUND STATS COLLECTOR ---
 

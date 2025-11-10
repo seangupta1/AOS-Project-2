@@ -58,6 +58,12 @@ CREATE TABLE login_attempts (
     FOREIGN KEY (user_id) REFERENCE users(id) ON DELETE CASCADE
 );
 
+-- Configuration Backup
+CREATE TABLE app_config (
+    config_key VARCHAR(100) PRIMARY KEY,
+    config_value TEXT NOT NULL
+);
+
 INSERT INTO users (username, password, role)
 VALUES ('admin', 'pbkdf2:sha256:260000$0WbCMc1zvR9JCIy5$ae02306877d84d8065c66d4644b20978d4978983d44a12f004dfa823428be018
 ', 'admin');
