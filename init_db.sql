@@ -55,7 +55,7 @@ CREATE TABLE login_attempts (
     attempts INT DEFAULT 0,
     last_failed TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (user_id),
-    FOREIGN KEY (user_id) REFERENCE users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 INSERT INTO users (username, password, role)
