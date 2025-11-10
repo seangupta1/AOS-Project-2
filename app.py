@@ -26,11 +26,11 @@ logging.basicConfig(
 # --- END LOGGING CONFIG ---
 
 # MySQL configuration
-# MySQL configuration
 app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
 app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 # Update the Upload folder to be flexible
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
@@ -827,6 +827,11 @@ collector_thread.start()
 def monitoring():
     """Serves the dedicated monitoring chart page."""
     return render_template("monitoring.html")
+
+@app.errorhandler(413)
+def too_large(e):
+    flash("File is too large. Max allowed size is 50 MB.", "error")
+    return redirect(url_for('dashboard'))
 
 if __name__ == "__main__":
     app.run(debug=True)
