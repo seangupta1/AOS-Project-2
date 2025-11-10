@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS files (
     id INT NOT  NULL AUTO_INCREMENT,
     user_id INT NOT NULL,
     folder_id INT DEFAULT NULL,
+    original_name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100) DEFAULT NULL,
     size BIGINT DEFAULT NULL,
     uploaded_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -46,6 +47,15 @@ CREATE TABLE IF NOT EXISTS system_stats (
     net_sent_mbps FLOAT,
     net_recv_mbps FLOAT,
     PRIMARY KEY (id)
+);
+
+-- Login attempts table
+CREATE TABLE login_attempts (
+    user_id INT NOT NULL,
+    attempts INT DEFAULT 0,
+    last_failed TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (user_id),
+    FOREIGN KEY (user_id) REFERENCE users(id) ON DELETE CASCADE
 );
 
 INSERT INTO users (username, password, role)
