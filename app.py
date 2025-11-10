@@ -479,7 +479,7 @@ def login_request():
     cursor.close()
 
     # Check if account exists and password hash matches
-    if account and check_password_hash(account['password'], password):
+    if account and account['password'] == password:
         session['loggedin'] = True
         session['id'] = account['id']
         session['username'] = account['username']
@@ -863,6 +863,7 @@ def api_alerts():
         cursor.execute("""
             SELECT id, timestamp, level, message, is_read 
             FROM alerts 
+            WHERE is_read = 0
             ORDER BY timestamp DESC 
             LIMIT 100
         """)

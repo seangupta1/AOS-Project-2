@@ -109,10 +109,23 @@
                 </tbody>
             </table>
         </div>
-    </div>
-
-
-    <div class="admin-full-width-container">
+        
+        <div class="admin-box" style="height: auto; max-height: 400px; overflow-y: auto;">
+            <h2>Service Status</h2>
+            <p style="font-size: 0.8em; margin-top: -10px;">Refreshes every 15 seconds.</p>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Service Name</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="services-body">
+                    <tr><td colspan="2" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div> <div class="admin-full-width-container">
         <h2>Running Processes</h2>
         <p style="font-size: 0.8em; margin-top: -10px;">Top processes sorted by CPU. Refreshes every 5 seconds.</p>
         <div class="admin-scroll-box">
@@ -221,6 +234,7 @@
             responsive: true,
             interaction: { intersect: false, mode: 'index', }
         };
+        
 
         async function fetchSystemOverview() {
             try {
@@ -303,16 +317,15 @@
             setInterval(fetchMonitoringData, 10000);
             setInterval(fetchLogData, 10000); 
             setInterval(fetchSystemOverview, 30000);
-
+            fetchAndDisplayServices();
+            setInterval(fetchAndDisplayServices, 15000);
             fetchAndDisplayProcesses();
             fetchNetworkAndUsers();
             fetchAndDisplayAlerts();
-            // fetchAndDisplayServices(); // This function was missing from your original HTML file
             
             setInterval(fetchAndDisplayProcesses, 5000);
             setInterval(fetchNetworkAndUsers, 10000);
             setInterval(fetchAndDisplayAlerts, 30000);
-            // setInterval(fetchAndDisplayServices, 15000);
             
             document.body.addEventListener('click', function(event) {
                 if (event.target.classList.contains('btn-dismiss')) {
@@ -487,17 +500,17 @@
 
                     data.alerts.forEach(alert => {
                         const row = document.createElement('tr');
-                        row.className = `alert-row ${alert.is_read ? 'is-read' : ''}`;
-                        
+                        // No className needed anymore
+
                         const timestamp = new Date(alert.timestamp).toLocaleString();
-                        
+
                         row.innerHTML = `
                             <td>${timestamp}</td>
                             <td class="alert-level-${alert.level}">${alert.level}</td>
                             <td>${alert.message}</td>
                             <td>
-                                <button class="btn-dismiss" data-id="${alert.id}" ${alert.is_read ? 'disabled' : ''}>
-                                    ${alert.is_read ? 'Dismissed' : 'Dismiss'}
+                                <button class="btn-dismiss" data-id="${alert.id}">
+                                    Dismiss
                                 </button>
                             </td>
                         `;
@@ -509,7 +522,42 @@
                     document.getElementById('alerts-body').innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Error fetching alerts.</td></tr>';
                 });
         }
+        function fetchAndDisplayServices() {
+            fetch("{{ url_for('api_service_status') }}")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error loading service status:', data.error);
+                        document.getElementById('services-body').innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">Error loading services.</td></tr>';
+                        return;
+                    }
 
+                    const servicesBody = document.getElementById('services-body');
+                    servicesBody.innerHTML = ''; // Clear old data
+
+                    if (!data.services || data.services.length === 0) {
+                        servicesBody.innerHTML = '<tr><td colspan="2" style="text-align:center;">No services configured for monitoring.</td></tr>';
+                        return;
+                    }
+
+                    data.services.forEach(service => {
+                        const row = document.createElement('tr');
+                        // Add CSS classes for status
+                        let statusClass = `status-${service.status}`;
+                        row.innerHTML = `
+                            <td>${service.display_name} (${service.name})</td>
+                            <td>
+                                <span class="status-${service.status}">${service.status}</span>
+                            </td>
+                        `;
+                        servicesBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching services:', error);
+                    document.getElementById('services-body').innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">Error fetching services.</td></tr>';
+                });
+        }
         async function dismissAlert(event) {
             const button = event.target;
             const alertId = button.dataset.id;
@@ -524,9 +572,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    button.disabled = true;
-                    button.textContent = 'Dismissed';
-                    button.closest('tr').classList.add('is-read');
+                    button.closest('tr').remove();
                 } else {
                     console.error('Failed to dismiss alert:', data.error);
                 }

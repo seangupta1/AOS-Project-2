@@ -307,7 +307,10 @@ body {
 .status-INACTIVE { color: #dc3545; font-weight: bold; }
 .status-ERROR { color: #ffc107; font-weight: bold; }
 
-.alert-row.is-read { color: #888; }
+.alert-row.is-read {
+    color: #888;
+    opacity: 0.5; /* Fades out dismissed alerts */
+}
 .alert-level-ERROR { color: red; font-weight: bold; }
 .alert-level-WARNING { color: #ffc107; font-weight: bold; }
 
@@ -330,7 +333,7 @@ body {
 /* === New Layout Rules for Admin Panel === */
 .admin-info-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr; /* 3-column grid for info boxes */
+    grid-template-columns: 1fr 1fr; /* <-- THIS IS THE FIX: Changed from 3 columns to 2 */
     gap: 20px;
     margin: 20px 50px;
 }
