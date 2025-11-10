@@ -59,5 +59,4 @@ CREATE TABLE login_attempts (
 );
 
 INSERT INTO users (username, password, role)
-VALUES ('admin', 'pbkdf2:sha256:260000$0WbCMc1zvR9JCIy5$ae02306877d84d8065c66d4644b20978d4978983d44a12f004dfa823428be018
-', 'admin');
+VALUES ('admin', 'pbkdf2:sha256:260000$EXLF0dhv2EdIsrj0$9a7c478f6bd3e59546ac23af925950050672cfc024bb0f986546d6c0412fefed', 'admin');
