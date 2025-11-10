@@ -79,7 +79,7 @@ def upload_file():
 
     if not allowed_file(file.filename):
         flash('Invalid file type.')
-        return redirect(request.url)
+        return redirect(url_for('dashboard', folder=request.form.get('folder_id')))
 
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
