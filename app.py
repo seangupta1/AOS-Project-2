@@ -829,8 +829,8 @@ def monitoring():
     return render_template("monitoring.html")
 
 @app.errorhandler(413)
-def too_large(e):
-    flash("File is too large. Max allowed size is 50 MB.", "error")
+def handle_large_file(e):
+    flash("File is too large. Max allowed size is 10 MB.", "error")
     return redirect(url_for('dashboard'))
 
 if __name__ == "__main__":
