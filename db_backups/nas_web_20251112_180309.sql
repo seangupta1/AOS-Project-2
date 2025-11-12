@@ -35,6 +35,7 @@ CREATE TABLE `app_config` (
 
 LOCK TABLES `app_config` WRITE;
 /*!40000 ALTER TABLE `app_config` DISABLE KEYS */;
+INSERT INTO `app_config` VALUES ('auto_backup','1'),('dark_mode','0'),('email_notifications','1');
 /*!40000 ALTER TABLE `app_config` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -56,7 +57,7 @@ CREATE TABLE `files` (
   PRIMARY KEY (`id`),
   KEY `folder_id` (`folder_id`),
   CONSTRAINT `files_ibfk_1` FOREIGN KEY (`folder_id`) REFERENCES `folders` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -65,6 +66,7 @@ CREATE TABLE `files` (
 
 LOCK TABLES `files` WRITE;
 /*!40000 ALTER TABLE `files` DISABLE KEYS */;
+INSERT INTO `files` VALUES (1,1,NULL,'Dummytext2_Copy.txt','text/plain',5,'2025-11-12 18:02:25'),(2,1,NULL,'Dummytext2.txt','text/plain',43,'2025-11-12 18:02:28');
 /*!40000 ALTER TABLE `files` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -185,4 +187,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-10 19:34:23
+-- Dump completed on 2025-11-12 18:03:09

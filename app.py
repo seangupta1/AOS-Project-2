@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from backup_manager import BackupManager
+import subprocess
 
 app = Flask(__name__)
 app.secret_key = 'password'
@@ -797,6 +798,37 @@ configs = {
     "auto_backup": False,
     "dark_mode": False
 }
+
+@app.route('/backups', methods=['GET'])
+def backups():
+    files = sorted(os.listdir(DB_BACKUP_DIR), reverse=True)
+    return render_template("backups.html", backups=files)
+
+@app.route("/restore", methods=["POST"])
+def restore_backup():
+    filename = request.form["filename"]
+    filepath = os.path.join(DB_BACKUP_DIR, filename)
+
+    if not os.path.exists(filepath):
+        flash("Backup file not found.")
+        return redirect(url_for("backups"))
+
+    MYSQL_USER = app.config['MYSQL_USER']
+    MYSQL_PASS = app.config['MYSQL_PASSWORD']
+    MYSQL_DB   = app.config['MYSQL_DB']
+
+    try:
+        subprocess.run(
+            ["mysql", "-u", MYSQL_USER, f"-p{MYSQL_PASS}", MYSQL_DB],
+            stdin=open(filepath, "r"),
+            check=True
+        )
+        flash(f"Database successfully restored from {filename}.")
+    except subprocess.CalledProcessError:
+        flash("Error restoring the database.")
+
+    return redirect(url_for("backups"))
+
 
 @app.route('/backup/db', methods=['GET'])
 def manual_db_backup():
