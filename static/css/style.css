@@ -100,7 +100,7 @@ body {
     display: flex;
     flex-direction: column;
     margin: 10px 50px;
-    padding-top: 20px;
+    padding-top: 5px;
     text-align: left;
     width: calc(100% - 100px);
 }
@@ -252,4 +252,9 @@ body {
 .div-user-files-nav {
     display: flex;
     flex-direction: row;
+    align-items: center;
+}
+
+.folder_name {
+    margin-left: 20px;
 }

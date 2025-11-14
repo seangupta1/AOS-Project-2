@@ -321,6 +321,7 @@ def dashboard():
         return redirect(url_for('login'))
     
     folder_id = None
+    folder_name = ""
 
     if request.method == "POST":
         folder_id = request.form.get('folder_id')  # <-- get it from form data
@@ -348,6 +349,13 @@ def dashboard():
         else:
             flash("Folder not found.")
             return redirect(url_for('dashboard'))
+        
+        # Get current folder name
+        cursor.execute(
+            "SELECT name FROM folders WHERE id = %s AND user_id = %s",
+            (current_folder_id, session['id'])
+        )
+        folder_name = cursor.fetchone()['name']
 
     # Fetch folders
     if current_folder_id is not None:
@@ -380,7 +388,8 @@ def dashboard():
         folders=folders,
         files=files,
         current_folder_id=current_folder_id,
-        parent_id=parent_id
+        parent_id=parent_id,
+        folder_name=folder_name
     ))
 
     # Prevent caching
@@ -390,6 +399,15 @@ def dashboard():
 
     return response
 
+def human_readable_size(size):
+    # size in bytes
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1_000:
+            return f"{size:.1f} {unit}"
+        size /= 1_000 # using 1_000 instead of 1_024 becasue this will match mac finder file size
+    return f"{size:.1f} GB"
+
+app.jinja_env.filters['human_size'] = human_readable_size
 
 # ----------------------------
 # DOWNLOAD FILE

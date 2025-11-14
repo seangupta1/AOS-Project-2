@@ -73,6 +73,9 @@
                     <input type="hidden" name="folder_id" value="{{ parent_id }}">
                     <button type="submit" class="button-dashboard">⬅ Back</button>
                 </form>
+
+                <!-- Current folder name -->
+                 <h3 class="folder_name">📁 {{ folder_name }}</h3>
                 {% endif %}
             </div>
 
@@ -81,6 +84,7 @@
                     <tr>
                         <th>Name</th>
                         <th>Type</th>
+                        <th>Size</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -94,6 +98,7 @@
                             </form>
                         </td>
                         <td>Folder</td>
+                        <td></td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_folder') }}" style="display:inline;">
                                 <input type="hidden" name="folder_id" value="{{ folder.id }}">
@@ -124,6 +129,7 @@
                     <tr>
                         <td>{{ file.original_name }}</td>
                         <td>{{ file.mime_type }}</td>
+                        <td>{{ file.size | human_size }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_file') }}" style="display:inline;">
                                 <input type="hidden" name="file_id" value="{{ file.id }}">
