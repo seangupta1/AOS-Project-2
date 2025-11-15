@@ -27,32 +27,17 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
-# --- END LOGGING CONFIG ---
 
-# MySQL configuration
+# MySQL database configuration
 app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'nas_user')
-app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
+app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'supersecretpassword')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
-
-# Update the Upload folder to be flexible
-UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 
 mysql = MySQL(app)
 
-MAX_ATTEMPTS = 3
-LOCKOUT_MINUTES = 2
-MAX_FILE_SIZE = 10 * 1024 * 1024
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'loggedin' not in session or session.get('role') != 'admin':
-            flash("You do not have permission to access this page.", "error")
-            return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
-    return decorated_function
-
+# File upload configuration
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -100,15 +85,7 @@ def upload_file():
     
     if not allowed_file(file.filename):
         flash('Invalid file type.')
-        return redirect(url_for('dashboard', folder=request.form.get('folder_id')))
-
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        flash(f"File is too large. Maximum allowed size is {MAX_FILE_SIZE // (1024*1024)} MB.")
-        return redirect(url_for('dashboard'))
+        return redirect(request.url)
 
     user_id = session['id']
     folder_id = request.form.get('folder_id')
@@ -313,17 +290,34 @@ def delete_folder():
     else:
         return redirect(url_for('dashboard'))
 
-
 def delete_folder_recursive(cursor, folder_id, user_id):
     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
     sub_folders = cursor.fetchall()
     for sub in sub_folders:
         delete_folder_recursive(cursor, sub['id'], user_id)
 
-    # Delete all files in this folder
+    # Fetch all files in this folder
+    cursor.execute("SELECT id, original_name FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
+    files = cursor.fetchall()
+
+    for file_record in files:
+        file_id = file_record['id']
+        ext = os.path.splitext(file_record['original_name'])[1]
+        storage_name = f"{file_id}{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, storage_name)
+
+        # Try to delete the file from disk
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"Deleted file: {filepath}")
+        except Exception as e:
+            print(f"Error deleting {filepath}: {e}")
+
+    # Delete file records from the DB
     cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
 
-    # Finally, delete the folder itself
+    # Delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
 @app.route("/dashboard", methods=["GET"])
@@ -542,87 +536,24 @@ def login_request():
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
     account = cursor.fetchone()
-    now = datetime.now()
+    cursor.close()
 
-    if account:
-        # Check login attempts for this user
-        cursor.execute('SELECT * FROM login_attempts WHERE user_id = %s', (account['id'],))
-        attempt_record = cursor.fetchone()
-
-        if attempt_record:
-            attempts = attempt_record['attempts']
-            last_failed = attempt_record['last_failed']
-
-            # If last_failed is stored as string, parse it
-            if last_failed and isinstance(last_failed, str):
-                last_failed = datetime.strptime(last_failed, '%Y-%m-%d %H:%M:%S')
-
-            lockout_end = (last_failed + timedelta(minutes=LOCKOUT_MINUTES)) if last_failed else None
-
-            # Still locked out?
-            if lockout_end and now < lockout_end and attempts >= MAX_ATTEMPTS:
-                remaining = int((lockout_end - now).total_seconds() // 60) + 1
-                msg = f"Account locked. Try again in {remaining} minute(s)."
-                cursor.close()
-                flash(msg, "error")
-                return redirect(url_for('login'))
-        else:
-            # No record yet — create one
-            cursor.execute("""
-                INSERT INTO login_attempts (user_id, attempts, last_failed)
-                VALUES (%s, 0, NULL)
-            """, (account['id'],))
-            mysql.connection.commit()
-            attempts = 0
-            last_failed = None
-
-        # Check password using secure hash
-        if check_password_hash(account['password'], password):
-            # Reset login attempts on success
-            cursor.execute("""
-                UPDATE login_attempts
-                SET attempts = 0, last_failed = NULL
-                WHERE user_id = %s
-            """, (account['id'],))
-            mysql.connection.commit()
-            cursor.close()
-
-            session['loggedin'] = True
-            session['id'] = account['id']
-            session['username'] = account['username']
-            session['role'] = account['role']
-            app.logger.info(f"User '{username}' logged in successfully.")
-            return redirect(url_for('dashboard'))
-        else:
-            # Increment failed login attempts
-            attempts += 1
-            cursor.execute("""
-                UPDATE login_attempts
-                SET attempts = %s, last_failed = %s
-                WHERE user_id = %s
-            """, (attempts, now, account['id']))
-            mysql.connection.commit()
-            cursor.close()
-
-            if attempts >= MAX_ATTEMPTS:
-                msg = f"Account locked due to too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes."
-            else:
-                remaining = MAX_ATTEMPTS - attempts
-                msg = f"Invalid password. {remaining} attempt(s) remaining."
-
-            app.logger.warning(f"Failed login attempt for username: {username}")
-            create_alert_helper('WARNING', f'Failed login attempt for username: {username}')
-            flash(msg, "error")
-            return redirect(url_for('login'))
-
+    # Check if account exists and password hash matches
+    if account and account['password'] == password:
+        session['loggedin'] = True
+        session['id'] = account['id']
+        session['username'] = account['username']
+        session['role'] = account['role']
+        app.logger.info(f"User '{username}' logged in successfully.")
+        return redirect(url_for('dashboard'))
     else:
-        # No account with that username
-        cursor.close()
         app.logger.warning(f"Failed login attempt for username: {username}")
+        
+        # Create a system alert for failed login attempts
         create_alert_helper('WARNING', f'Failed login attempt for username: {username}')
+        
         flash("Invalid username or password.", "error")
         return redirect(url_for('login'))
-
 
 @app.route("/register_request", methods=["POST"])
 def register_request():
@@ -902,91 +833,37 @@ def api_stats_snapshot():
 @app.route("/api/logs")
 @admin_required
 def api_logs():
-    """Provides last 100 lines of the application log as JSON objects."""
-    if 'loggedin' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     log_file_path = '/tmp/nas_app.log'
     logs = []
-
     try:
-        # If file doesn't exist, create it and return empty logs
         if not os.path.exists(log_file_path):
-            with open(log_file_path, 'a') as f:
-                f.write("Log file created.\n")
-            return jsonify({"logs": []})
-
+            return jsonify({"logs": [{"timestamp": "N/A", "level": "INFO", "message": "Log file not found. It will be created on first log."}]})
+        
         with open(log_file_path, 'r') as f:
             lines = f.readlines()
-            last_lines = lines[-100:]  # use 100, more generous
-            last_lines.reverse()       # newest first
-
-            for line in last_lines:
+            last_100_lines = lines[-100:]
+            last_100_lines.reverse()
+            for line in last_100_lines:
                 try:
-                    line = line.rstrip("\n")
-                    if not line.strip():
-                        continue
-
-                    # Case 1: [INFO] style
                     if "[INFO]" in line:
                         parts = line.split("[INFO] ", 1)
                         timestamp = parts[0].strip("[]")
                         message = parts[1].strip()
-                        logs.append({
-                            "timestamp": timestamp,
-                            "level": "INFO",
-                            "message": message
-                        })
-
-                    # Case 2: "TIMESTAMP - LEVEL - MESSAGE"
+                        logs.append({"timestamp": timestamp, "level": "INFO", "message": message})
                     elif " - INFO - " in line or " - ERROR - " in line or " - WARNING - " in line:
                         parts = line.split(' - ', 2)
-                        logs.append({
-                            "timestamp": parts[0].strip(),
-                            "level": parts[1].strip(),
-                            "message": parts[2].strip()
-                        })
-
-                    # Case 3: HTTP access log line
+                        logs.append({"timestamp": parts[0].strip(), "level": parts[1].strip(), "message": parts[2].strip()})
                     elif "HTTP/1.1" in line:
-                        logs.append({
-                            "timestamp": "N/A",
-                            "level": "ACCESS",
-                            "message": line.strip()
-                        })
-
-                    # Case 4: Anything else
-                    else:
-                        logs.append({
-                            "timestamp": "N/A",
-                            "level": "RAW",
-                            "message": line.strip()
-                        })
-
+                            logs.append({"timestamp": "N/A", "level": "ACCESS", "message": line.strip()})
+                    elif line.strip():
+                        logs.append({"timestamp": "N/A", "level": "RAW", "message": line.strip()})
                 except Exception:
-                    # Fallback if parsing a single line fails
-                    logs.append({
-                        "timestamp": "N/A",
-                        "level": "ERROR",
-                        "message": line.strip()
-                    })
-
+                    if line.strip():
+                        logs.append({"timestamp": "N/A", "level": "ERROR", "message": line.strip()})
         return jsonify({"logs": logs})
-
     except Exception as e:
         app.logger.error(f"Error in /api/logs: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/logs")
-@admin_required
-def logs():
-    """Serves the dedicated log page."""
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
-
-    return render_template("logs.html")
-
 
 # API: Get top running processes
 @app.route("/api/processes")
@@ -1010,7 +887,6 @@ def api_processes():
     except Exception as e:
         app.logger.error(f"Error in /api/processes: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # API: Get active network connections and logged-in users
 @app.route("/api/network_stats")
@@ -1040,12 +916,11 @@ def api_network_stats():
                 "host": user.host,
                 "started": datetime.fromtimestamp(user.started).strftime('%Y-%m-%d %H:%M:%S')
             })
-
+        
         return jsonify({"connections": connections, "users": users})
     except Exception as e:
         app.logger.error(f"Error in /api/network_stats: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 def check_service_status(service_name):
     """Checks if a systemd service is active using subprocess for better error handling."""
@@ -1057,25 +932,24 @@ def check_service_status(service_name):
             text=True,
             check=False
         )
-
+        
         if result.returncode == 0:
             return 'ACTIVE'
         else:
             if result.stderr:
                 app.logger.warning(f"Service check for '{service_name}' failed: {result.stderr.strip()}")
             elif result.returncode == 3:
-                app.logger.warning(f"Service check for '{service_name}' reported status: INACTIVE")
+                 app.logger.warning(f"Service check for '{service_name}' reported status: INACTIVE")
             else:
-                app.logger.warning(f"Service check for '{service_name}' returned unknown code: {result.returncode}")
-            return 'INACTIVE'
-
+                 app.logger.warning(f"Service check for '{service_name}' returned unknown code: {result.returncode}")
+            return 'INACTIVE' 
+            
     except FileNotFoundError:
         app.logger.error("systemctl command not found at '/usr/bin/systemctl'. Cannot check service status.")
         return 'ERROR'
     except Exception as e:
         app.logger.error(f"Error checking service {service_name}: {e}")
         return 'ERROR'
-
 
 @app.route("/api/service_status")
 @admin_required
@@ -1094,7 +968,6 @@ def api_service_status():
         app.logger.error(f"Error in /api/service_status: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 # API: Get recent system alerts
 @app.route("/api/alerts")
 @admin_required
@@ -1110,15 +983,14 @@ def api_alerts():
         """)
         alerts = cursor.fetchall()
         cursor.close()
-
+        
         for alert in alerts:
             alert['timestamp'] = alert['timestamp'].isoformat()
-
+            
         return jsonify({"alerts": alerts})
     except Exception as e:
         app.logger.error(f"Error in /api/alerts: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # API: Mark a system alert as 'read'
 @app.route("/api/alert_dismiss", methods=["POST"])
@@ -1129,18 +1001,17 @@ def api_alert_dismiss():
         alert_id = data.get('id')
         if not alert_id:
             return jsonify({"success": False, "error": "Missing alert ID"}), 400
-
+            
         cursor = mysql.connection.cursor()
         cursor.execute("UPDATE alerts SET is_read = 1 WHERE id = %s", (alert_id,))
         mysql.connection.commit()
         cursor.close()
-
+        
         return jsonify({"success": True})
     except Exception as e:
         mysql.connection.rollback()
         app.logger.error(f"Error in /api/alert_dismiss: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 # API: Get system uptime and root disk usage
 @app.route("/api/system_overview")
@@ -1151,16 +1022,16 @@ def api_system_overview():
         boot_time = datetime.fromtimestamp(psutil.boot_time())
         now = datetime.now()
         uptime_delta = now - boot_time
-
+        
         # Format uptime string
         days = uptime_delta.days
         hours, remainder = divmod(uptime_delta.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime_string = f"{days}d, {hours}h, {minutes}m"
-
+        
         # Get System Disk Usage
         disk = psutil.disk_usage('/')
-
+        
         return jsonify({
             "uptime_string": uptime_string,
             "disk_percent": disk.percent,
@@ -1171,67 +1042,22 @@ def api_system_overview():
         app.logger.error(f"Error in /api/system_overview: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-# --- BACKGROUND STATS COLLECTOR & MONITORING PAGE ---
+# ----------------------------------
+## Background Stats Collector Thread
+# ----------------------------------
 
 def get_network_io(interval=1):
-    """Returns network I/O in Megabits per second (Mbps)."""
     counter_now = psutil.net_io_counters()
     time.sleep(interval)
     counter_later = psutil.net_io_counters()
-
+    
     sent_bps = counter_later.bytes_sent - counter_now.bytes_sent
     recv_bps = counter_later.bytes_recv - counter_now.bytes_recv
-
+    
     sent_mbps = (sent_bps * 8) / (1024 * 1024) / interval
     recv_mbps = (recv_bps * 8) / (1024 * 1024) / interval
-
+    
     return round(sent_mbps, 2), round(recv_mbps, 2)
-
-
-def stats_collector_loop():
-    """A background thread loop that collects stats every 10 seconds."""
-    print("Starting background stats collector thread...")
-    with app.app_context():  # We need an app context to access the database
-        while True:
-            try:
-                cpu = psutil.cpu_percent(interval=None)
-                mem = psutil.virtual_memory().percent
-                net_sent, net_recv = get_network_io(interval=1)
-
-                # Connect to DB and insert
-                cursor = mysql.connection.cursor()
-                cursor.execute("""
-                    INSERT INTO system_stats (cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps)
-                    VALUES (%s, %s, %s, %s)
-                """, (cpu, mem, net_sent, net_recv))
-                mysql.connection.commit()
-
-                # Clean up old data (older than 1 hour)
-                cursor.execute("""
-                    DELETE FROM system_stats 
-                    WHERE timestamp < (NOW() - INTERVAL 1 HOUR)
-                """)
-                mysql.connection.commit()
-                cursor.close()
-
-            except Exception as e:
-                print(f"Error in stats collector thread: {e}")
-
-            time.sleep(10)  # Wait 10 seconds before next collection
-
-
-# START THE THREAD (keep this behavior from feature/security)
-collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
-collector_thread.start()
-
-
-@app.route("/monitoring")
-@admin_required
-def monitoring():
-    """Serves the dedicated monitoring chart page."""
-    return render_template("monitoring.html")
-
 
 def get_disk_io(interval=1):
     counter_now = psutil.disk_io_counters()
