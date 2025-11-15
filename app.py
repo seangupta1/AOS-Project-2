@@ -13,9 +13,11 @@ import time
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from backup_manager import BackupManager
-import subprocess
+from routes_backup import backup_bp
+from utils import admin_required
 
 app = Flask(__name__)
+app.register_blueprint(backup_bp)
 app.secret_key = 'password'
 
 # --- START LOGGING CONFIG ---
@@ -27,7 +29,6 @@ logging.basicConfig(
 )
 # --- END LOGGING CONFIG ---
 
-# MySQL configuration
 # MySQL configuration
 app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
@@ -57,15 +58,6 @@ backup_manager = BackupManager(
 
 MAX_ATTEMPTS = 999
 LOCKOUT_MINUTES = 0
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'loggedin' not in session or session.get('role') != 'admin':
-            flash("You do not have permission to access this page.", "error")
-            return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -786,113 +778,12 @@ def logs():
     return render_template("logs.html")
 
 # ----------------------------
-# BACKUPS API
+# Configurations page
 # ----------------------------
 
 @app.route('/admin/configurations')
 def configurations_page():
     return render_template("configurations.html")
-
-configs = {
-    "email_notifications": True,
-    "auto_backup": False,
-    "dark_mode": False
-}
-
-@app.route('/backups', methods=['GET'])
-def backups():
-    files = sorted(os.listdir(DB_BACKUP_DIR), reverse=True)
-    return render_template("backups.html", backups=files)
-
-@app.route("/restore", methods=["POST"])
-def restore_backup():
-    filename = request.form["filename"]
-    filepath = os.path.join(DB_BACKUP_DIR, filename)
-
-    if not os.path.exists(filepath):
-        flash("Backup file not found.")
-        return redirect(url_for("backups"))
-
-    MYSQL_USER = app.config['MYSQL_USER']
-    MYSQL_PASS = app.config['MYSQL_PASSWORD']
-    MYSQL_DB   = app.config['MYSQL_DB']
-
-    try:
-        subprocess.run(
-            ["mysql", "-u", MYSQL_USER, f"-p{MYSQL_PASS}", MYSQL_DB],
-            stdin=open(filepath, "r"),
-            check=True
-        )
-        flash(f"Database successfully restored from {filename}.")
-    except subprocess.CalledProcessError:
-        flash("Error restoring the database.")
-
-    return redirect(url_for("backups"))
-
-
-@app.route('/backup/db', methods=['GET'])
-def manual_db_backup():
-    backup_file = backup_manager.backup_database()
-    if backup_file:
-        return send_file(backup_file, as_attachment=True)
-    return jsonify({"status": "error", "message": "DB backup failed"}), 500
-
-@app.route('/backup/config', methods=['GET'])
-def manual_config_backup():
-    backup_file = backup_manager.backup_configurations()
-    if backup_file:
-        return send_file(backup_file, as_attachment=True)
-    return jsonify({"status": "error", "message": "Config backup failed"}), 500
-
-@app.route('/backup/start', methods=['GET'])
-def start_auto_backup():
-    backup_manager.start_auto_backup(interval_minutes=1)
-    return jsonify({"status": "success", "message": "Automatic backups started every minute"})
-
-@app.route('/backup/stop', methods=['GET'])
-def stop_auto_backup():
-    backup_manager.stop_auto_backup()
-    return jsonify({"status": "success", "message": "Automatic backups stopped"})
-
-@app.route('/api/get_configs', methods=['GET'])
-def api_get_configs():
-    """Return current configuration values."""
-    return jsonify({"configs": configs})
-
-@app.route('/api/update_configs', methods=['POST'])
-def api_update_configs():
-    """Update configuration values from admin page."""
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Invalid request"}), 400
-
-    for key in configs.keys():
-        if key in data:
-            configs[key] = bool(data[key])
-
-    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    for key in data.keys():
-        # Update in-memory dict
-        configs[key] = bool(data[key])
-
-        # Upsert into database
-        cursor.execute("""
-            INSERT INTO app_config (config_key, config_value)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE config_value = %s
-        """, (key, configs[key], configs[key]))
-
-    mysql.connection.commit()
-
-
-    if 'auto_backup' in data:
-        if configs['auto_backup']:
-            backup_manager.start_auto_backup(interval_minutes=1)
-        else:
-            backup_manager.stop_auto_backup()
-
-    return jsonify({"success": True})
 
 # --- BACKGROUND STATS COLLECTOR ---
 

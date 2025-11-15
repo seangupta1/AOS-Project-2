@@ -64,5 +64,9 @@ CREATE TABLE IF NOT EXISTS app_config (
     config_value TEXT NOT NULL
 );
 
+INSERT INTO app_config (config_key, config_value)
+VALUES ('backup_frequency_minutes', '1')
+ON DUPLICATE KEY UPDATE config_value = VALUES(config_value);
+
 INSERT INTO users (username, password, role)
 VALUES ('admin', 'pbkdf2:sha256:1000000$HbP24P9IofnVBLHG$fa7a3c9ec274394fc122e903683bd86bf208e69902800082b71cd9804dc9f3f3', 'admin');
