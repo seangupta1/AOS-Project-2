@@ -69,9 +69,17 @@
                     <button class="button-dashboard" type="button">🏠 Home</button>
                 </a>
 
+                <a href="{{ url_for('dashboard') }}">
+                    <button class="button-dashboard" type="button">🏠 Home</button>
+                </a>
+
                 <a href="{{ url_for('dashboard', folder=parent_id if parent_id else '') }}">
                     <button type="button" class="button-dashboard">⬅ Back</button>
                 </a>
+
+                <!-- Current folder name, visible only when inside a folder -->
+                <h3 class="folder_name">📁 {{ folder_name }}</h3>
+
                 {% endif %}
             </div>
 
@@ -80,6 +88,7 @@
                     <tr>
                         <th>Name</th>
                         <th>Type</th>
+                        <th>Size</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -92,6 +101,7 @@
                             </a>
                         </td>
                         <td>Folder</td>
+                        <td></td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_folder') }}">
                                 <input type="hidden" name="folder_id" value="{{ folder.id }}">
@@ -122,6 +132,7 @@
                     <tr>
                         <td>{{ file.original_name }}</td>
                         <td>{{ file.mime_type }}</td>
+                        <td>{{ file.size | human_size }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_file') }}">
                                 <input type="hidden" name="file_id" value="{{ file.id }}">

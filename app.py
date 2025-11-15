@@ -295,22 +295,29 @@ def delete_folder_recursive(cursor, folder_id, user_id):
     sub_folders = cursor.fetchall()
     for sub in sub_folders:
         delete_folder_recursive(cursor, sub['id'], user_id)
-    
+
+    # Fetch all files in this folder
     cursor.execute("SELECT id, original_name FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
     files = cursor.fetchall()
+
     for file_record in files:
         file_id = file_record['id']
         ext = os.path.splitext(file_record['original_name'])[1]
         storage_name = f"{file_id}{ext}"
         filepath = os.path.join(UPLOAD_FOLDER, storage_name)
+
+        # Try to delete the file from disk
         try:
             if os.path.exists(filepath):
                 os.remove(filepath)
-                # Note: No need to log every individual file delete here, as the main delete_folder logs the action.
+                print(f"Deleted file: {filepath}")
         except Exception as e:
             print(f"Error deleting {filepath}: {e}")
-            
+
+    # Delete file records from the DB
     cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
+
+    # Delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
 @app.route("/dashboard", methods=["GET"])
@@ -318,7 +325,15 @@ def dashboard():
     if 'loggedin' not in session:
         return redirect(url_for('login'))
     
-    folder_id = request.args.get('folder') 
+    folder_id = None
+    folder_name = ""
+
+    if request.method == "POST":
+        folder_id = request.form.get('folder_id')  # <-- get it from form data
+        print("Folder ID from POST:", folder_id)
+    else:
+        folder_id = request.args.get('folder')  # optional: if you also allow query params
+        print("Folder ID from GET:", folder_id)
     
     folder_id = int(folder_id) if str(folder_id).isdigit() else None
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -338,6 +353,15 @@ def dashboard():
             cursor.close()
             return redirect(url_for('dashboard'))
         
+        # Get current folder name
+        cursor.execute(
+            "SELECT name FROM folders WHERE id = %s AND user_id = %s",
+            (current_folder_id, session['id'])
+        )
+        folder_name = cursor.fetchone()['name']
+
+    # Fetch folders
+    if current_folder_id is not None:
         cursor.execute(
             "SELECT * FROM folders WHERE user_id = %s AND parent_id = %s",
             (session['id'], current_folder_id)
@@ -385,6 +409,7 @@ def dashboard():
         files=files,
         current_folder_id=current_folder_id,
         parent_id=parent_id,
+        folder_name=folder_name,
         current_usage_gb=current_usage_gb,
         user_quota_gb=user_quota_gb,
         usage_percent=usage_percent
@@ -394,6 +419,19 @@ def dashboard():
     response.headers['Expires'] = '0'
     return response
 
+def human_readable_size(size):
+    # size in bytes
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1_000:
+            return f"{size:.1f} {unit}"
+        size /= 1_000 # using 1_000 instead of 1_024 becasue this will match mac finder file size
+    return f"{size:.1f} GB"
+
+app.jinja_env.filters['human_size'] = human_readable_size
+
+# ----------------------------
+# DOWNLOAD FILE
+# ----------------------------
 @app.route("/download_file/<int:file_id>", methods=["GET"])
 def download_file(file_id):
     if 'loggedin' not in session:
