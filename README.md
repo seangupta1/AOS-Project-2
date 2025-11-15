@@ -81,7 +81,7 @@ You must create the database and initialize the tables before running the applic
 
 ---
 
-## ⚙️ Application & Deployment Setup
+## Application & Deployment Setup
 
 ### 1. Code Installation and Dependencies
 
