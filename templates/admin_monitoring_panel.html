@@ -71,15 +71,16 @@
         </div>
         
         <div class="admin-box" style="height: auto; max-height: 400px; overflow-y: auto;">
-            <h2>User Storage Report</h2>
+            <h2>User Report</h2>
             <table class="table-user-files">
                 <thead>
                     <tr>
                         <th>Username</th>
                         <th>Role</th>
                         <th>Usage</th>
-                        <th>Quota (GB)</th>
-                        <th>Actions</th>
+                        <th style="width: 10%;">Quota (GB)</th>
+                        <th style="width: 10%;">Update</th>
+                        <th style="width: 10%;">Delete</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -95,15 +96,30 @@
                             </div>
                             <small style="color: var(--secondary-color);">{{ user.usage_gb }} GB / {{ user.quota_gb }} GB</small>
                         </td>
+                        
+                        <!-- Quota Input Field (Part of the Update Form) -->
                         <form action="{{ url_for('update_quota') }}" method="POST" style="display: contents;">
                             <input type="hidden" name="user_id" value="{{ user.id }}">
                             <td>
                                 <input type="number" name="new_quota" value="{{ user.quota_gb }}" min="1">
                             </td>
+                            <!-- Update Button (Completes the Update Form Row) -->
                             <td>
                                 <button type="submit" class="button-dashboard">Update</button>
                             </td>
                         </form>
+                        
+                        <!-- NEW: Delete Button Field (Separate Form) -->
+                        <td>
+                            <form action="{{ url_for('delete_user') }}" method="POST" style="display:contents;">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <button type="submit" class="button-dashboard" 
+                                    {% if user.id == session['id'] %}disabled title="Cannot delete yourself"{% endif %} 
+                                    onclick="return confirm('WARNING: Are you sure you want to permanently delete user {{ user.username }} and ALL their files?');">
+                                    🗑️ Delete
+                                </button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

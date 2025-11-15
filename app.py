@@ -130,7 +130,8 @@ def upload_file():
     file.save(filepath)
 
     flash('File uploaded successfully.')
-    app.logger.info(f"User '{session['username']}' uploaded file '{original_name}'")
+    # AUDIT LOG: File addition
+    app.logger.info(f"User '{session['username']}' UPLOADED file '{original_name}' (ID: {file_id}).")
     
     if folder_id:
         return redirect(url_for('dashboard', folder=folder_id))
@@ -155,9 +156,13 @@ def create_folder():
         VALUES (%s, %s, %s)
     """, (session['id'], folder_name.strip(), parent_id))
     mysql.connection.commit()
+    new_folder_id = cursor.lastrowid
     cursor.close()
-    flash(f"Folder '{folder_name}' created successfully")
     
+    flash(f"Folder '{folder_name}' created successfully")
+    # AUDIT LOG: Folder addition
+    app.logger.info(f"User '{session['username']}' CREATED folder '{folder_name}' (ID: {new_folder_id}, Parent ID: {parent_id}).")
+
     if parent_id:
         return redirect(url_for('dashboard', folder=parent_id))
     else:
@@ -189,7 +194,10 @@ def rename_folder():
     """, (folder_name.strip(), folder_id, session['id']))
     mysql.connection.commit()
     cursor.close()
+    
     flash(f"Folder '{folder_name}' renamed successfully")
+    # AUDIT LOG: Folder rename
+    app.logger.info(f"User '{session['username']}' RENAMED folder ID {folder_id} to '{folder_name}'.")
     
     if parent_id:
         return redirect(url_for('dashboard', folder=parent_id))
@@ -206,6 +214,9 @@ def download_folder(folder_id):
     if not folder_record:
         cursor.close()
         return "Folder not found or permission denied", 404
+        
+    # AUDIT LOG: Folder download started
+    app.logger.info(f"User '{session['username']}' STARTED DOWNLOAD of folder '{folder_record['name']}' (ID: {folder_id}).")
 
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -255,7 +266,7 @@ def delete_folder():
         return redirect(url_for('dashboard'))
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute("SELECT id FROM folders WHERE id = %s AND user_id = %s", (folder_id, session['id']))
+    cursor.execute("SELECT id, name FROM folders WHERE id = %s AND user_id = %s", (folder_id, session['id']))
     folder_record = cursor.fetchone()
     if not folder_record:
         cursor.close()
@@ -264,7 +275,11 @@ def delete_folder():
     try:
         delete_folder_recursive(cursor, folder_id, session['id'])
         mysql.connection.commit()
+        
         flash("Folder and its contents deleted successfully.", "success")
+        # AUDIT LOG: Folder deletion
+        app.logger.info(f"User '{session['username']}' DELETED folder '{folder_record['name']}' (ID: {folder_id}).")
+        
     except Exception as e:
         mysql.connection.rollback()
         flash(f"Error deleting folder: {str(e)}", "error")
@@ -291,7 +306,7 @@ def delete_folder_recursive(cursor, folder_id, user_id):
         try:
             if os.path.exists(filepath):
                 os.remove(filepath)
-                print(f"Deleted file: {filepath}")
+                # Note: No need to log every individual file delete here, as the main delete_folder logs the action.
         except Exception as e:
             print(f"Error deleting {filepath}: {e}")
             
@@ -389,7 +404,10 @@ def download_file(file_id):
     cursor.close()
     if not file_record:
         return "File not found or permission denied", 404
-    
+        
+    # AUDIT LOG: File download started
+    app.logger.info(f"User '{session['username']}' STARTED DOWNLOAD of file '{file_record['original_name']}' (ID: {file_id}).")
+
     ext = os.path.splitext(file_record['original_name'])[1]
     storage_name = f"{file_id}{ext}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], storage_name)
@@ -437,7 +455,11 @@ def delete_file():
             os.remove(filepath)
         cursor.execute("DELETE FROM files WHERE id = %s AND user_id = %s", (file_id, session['id']))
         mysql.connection.commit()
+        
         flash("File deleted successfully.", "success")
+        # AUDIT LOG: File deletion
+        app.logger.info(f"User '{session['username']}' DELETED file '{file_record['original_name']}' (ID: {file_id}).")
+        
     except Exception as e:
         mysql.connection.rollback()
         flash(f"Error deleting file: {str(e)}", "error")
@@ -525,9 +547,6 @@ def delete_account():
     user_id = session['id']
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        # With 'ON DELETE CASCADE' in the database,
-        # deleting the user will automatically delete their files and folders.
-        
         # We still need to manually delete the physical files from the upload folder.
         cursor.execute("SELECT id, original_name FROM files WHERE user_id = %s", (user_id,))
         all_files = cursor.fetchall()
@@ -538,10 +557,14 @@ def delete_account():
             if os.path.exists(filepath):
                 os.remove(filepath)
             
-        # Now, just delete the user. The DB will handle the rest.
+        # Now, just delete the user. The DB will handle the rest via CASCADE.
         cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
         mysql.connection.commit()
         cursor.close()
+        
+        # AUDIT LOG: Self-deletion
+        app.logger.info(f"User '{session.get('username')}' DELETED OWN ACCOUNT (ID: {user_id}).")
+
         session.clear()
         flash("Your account and all associated data have been permanently deleted.")
         return redirect(url_for('login'))
@@ -551,8 +574,61 @@ def delete_account():
         flash(f"Error deleting account: {e}")
         return redirect(url_for('dashboard'))
 
+# New route for admin to delete any user
+@app.route("/delete_user", methods=["POST"])
+@admin_required
+def delete_user():
+    user_id_to_delete = request.form.get('user_id')
+    user_id_to_delete = int(user_id_to_delete) if str(user_id_to_delete).isdigit() else None
+
+    if not user_id_to_delete or user_id_to_delete == session['id']:
+        flash("Invalid request. You cannot delete your own admin account.", "error")
+        return redirect(url_for('admin_monitoring_panel'))
+
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        # Get username and files for logging/physical deletion
+        cursor.execute("SELECT username FROM users WHERE id = %s", (user_id_to_delete,))
+        user_record = cursor.fetchone()
+        if not user_record:
+            flash("User not found.", "error")
+            cursor.close()
+            return redirect(url_for('admin_monitoring_panel'))
+            
+        username_to_delete = user_record['username']
+        
+        # 1. Manually delete physical files first
+        cursor.execute("SELECT id, original_name FROM files WHERE user_id = %s", (user_id_to_delete,))
+        all_files = cursor.fetchall()
+        for file in all_files:
+            ext = os.path.splitext(file['original_name'])[1]
+            storage_name = f"{file['id']}{ext}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], storage_name)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+
+        # 2. Delete user from DB (CASCADE cleans up files/folders metadata)
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id_to_delete,))
+        mysql.connection.commit()
+        
+        # AUDIT LOG: Admin deletion
+        app.logger.info(f"Admin '{session['username']}' DELETED user '{username_to_delete}' (ID: {user_id_to_delete}).")
+        
+        flash(f"User '{username_to_delete}' successfully deleted.", "success")
+        
+    except Exception as e:
+        mysql.connection.rollback()
+        app.logger.error(f"Error deleting user {user_id_to_delete}: {e}")
+        flash(f"Error deleting user: {e}", "error")
+        
+    cursor.close()
+    return redirect(url_for('admin_monitoring_panel'))
+
 @app.route("/logout", methods=["POST"])
 def logout():
+    # AUDIT LOG: Logout
+    app.logger.info(f"User '{session.get('username', 'N/A')}' logged out.")
+    
     session.clear()
     return redirect(url_for('login'))
 
