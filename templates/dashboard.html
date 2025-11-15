@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Your Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+    
+    </head>
 
 <body>
     <header class="dashboard_header">
@@ -24,7 +25,6 @@
                 </form>
             </dialog>
         </div>
-
         <div>
             <h1>Welcome, {{ username }}!</h1>
         </div>
@@ -48,8 +48,13 @@
             <button class="button-dashboard" type="button"
                 onclick="document.getElementById('fileInput').click();">Upload File</button>
         </form>
+        
+        {% if session.role == 'admin' %}
+            <a href="{{ url_for('monitoring') }}" class="button-dashboard">View Monitoring</a>
+            <a href="{{ url_for('logs') }}" class="button-dashboard">View Logs</a>
+        {% endif %}
 
-        <form method="POST" action="{{ url_for('logout') }}">
+        <form method="POST" action="{{ url_for('logout') }}" style="margin-left: 20px;">
             <button class="button-dashboard" type="submit">Logout</button>
         </form>
         
@@ -60,25 +65,47 @@
         {% endif %}
     </div>
 
+    <div class="simple_container">
+        <div style="padding: 0 10px;"><strong>CPU:</strong> <span id="cpu-percent">...</span>%</div>
+        <div style="padding: 0 10px;"><strong>RAM:</strong> <span id="mem-percent">...</span>%</div>
+        <div style="padding: 0 10px;"><strong>Disk:</strong> <span id="disk-percent">...</span>%
+            (<span id="disk-used">...</span> GB / <span id="disk-total">...</span> GB)
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for msg in messages %}
+            <p>{{ msg }}</p>
+        {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+    
     <div class="user-files-container">
         <div>
             <div class="div-user-files-nav">
                 {% if current_folder_id %}
-                
-                <a href="{{ url_for('dashboard') }}">
-                    <button class="button-dashboard" type="button">🏠 Home</button>
-                </a>
+                <form method="GET" action="{{ url_for('dashboard') }}" style="display:inline;">
+                    <button class="button-dashboard" type="submit">🏠 Home</button>
+                </form>
 
-                <a href="{{ url_for('dashboard') }}">
-                    <button class="button-dashboard" type="button">🏠 Home</button>
-                </a>
+                {% if parent_id is not none %}
+                <form method="GET" action="{{ url_for('dashboard') }}" style="display:inline;">
+                    <input type="hidden" name="folder" value="{{ parent_id }}">
+                    <button type="submit" class="button-dashboard">⬅ Back</button>
+                </form>
 
-                <a href="{{ url_for('dashboard', folder=parent_id if parent_id else '') }}">
-                    <button type="button" class="button-dashboard">⬅ Back</button>
-                </a>
-
-                <!-- Current folder name, visible only when inside a folder -->
+                {# Show current folder name only when inside a folder #}
+                {% if folder_name %}
                 <h3 class="folder_name">📁 {{ folder_name }}</h3>
+                {% endif %}
+                {% else %}
+                <form method="GET" action="{{ url_for('dashboard') }}" style="display:inline;">
+                    <button type="submit" class="button-dashboard">⬅ Back to Home</button>
+                </form>
+                {% endif %}
 
                 {% endif %}
             </div>
@@ -96,9 +123,12 @@
                     {% for folder in folders %}
                     <tr>
                         <td>
-                            <a href="{{ url_for('dashboard', folder=folder.id) }}">
-                                <button type="button" class="button-dashboard">{{ folder.name }}</button>
-                            </a>
+                            <form method="GET" action="{{ url_for('dashboard') }}" style="display:inline;">
+                                <input type="hidden" name="folder" value="{{ folder.id }}">
+                                <button type="submit" class="button-dashboard">
+                                    {{ folder.name }}
+                                </button>
+                            </form>
                         </td>
                         <td>Folder</td>
                         <td></td>
@@ -149,6 +179,29 @@
             </table>
         </div>
     </div>
-</body>
 
+    <script>
+        function fetchSimpleStats() {
+            // We need a *new* simple API for this, or we can re-use the old one
+            // Let's assume you still have the old "api_stats" for this.
+            fetch("{{ url_for('api_stats_snapshot') }}") 
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) return;
+
+                    // Update Text Stats
+                    document.getElementById('cpu-percent').innerText = d.cpu_percent.toFixed(1);
+                    document.getElementById('mem-percent').innerText = d.mem_percent.toFixed(1);
+                    document.getElementById('disk-percent').innerText = d.disk_percent.toFixed(1);
+                    document.getElementById('disk-used').innerText = d.disk_used_gb;
+                    document.getElementById('disk-total').innerText = d.disk_total_gb;
+
+                }).catch(e => console.error(e));
+        }
+        
+        // Run the function
+        fetchSimpleStats(); 
+        setInterval(fetchSimpleStats, 3000); 
+    </script>
+</body>
 </html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-R">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Monitoring</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="dashboard_header">
+        <div>
+            <a href="{{ url_for('dashboard') }}" class="button-dashboard" style="position: absolute; left: 5px; top: 5px;">⬅ Back to Dashboard</a>
+        </div>
+        <div>
+            <h1>System Monitoring (Last 1 Hour)</h1>
+        </div>
+    </header>
+
+    <div class="user-files-container">
+        <div style="padding: 20px;">
+            <h3>CPU & Memory Usage (%)</h3>
+            <canvas id="cpuMemChart"></canvas>
+        </div>
+    </div>
+
+    <div class="user-files-container">
+        <div style="padding: 20px;">
+            <h3>Network I/O (Mbps)</h3>
+            <canvas id="netChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // --- Chart.js Configuration ---
+        const ctxCpuMem = document.getElementById('cpuMemChart').getContext('2d');
+        const cpuMemChart = new Chart(ctxCpuMem, {
+            type: 'line',
+            data: {
+                labels: [], // Timestamps
+                datasets: [
+                    { label: 'CPU (%)', data: [], borderColor: '#FFD100', tension: 0.1 },
+                    { label: 'Memory (%)', data: [], borderColor: '#005BBB', tension: 0.1 }
+                ]
+            },
+            options: { scales: { y: { beginAtZero: true, max: 100 } } }
+        });
+
+        const ctxNet = document.getElementById('netChart').getContext('2d');
+        const netChart = new Chart(ctxNet, {
+            type: 'line',
+            data: {
+                labels: [], // Timestamps
+                datasets: [
+                    { label: 'Sent (Mbps)', data: [], borderColor: 'green', tension: 0.1 },
+                    { label: 'Received (Mbps)', data: [], borderColor: 'red', tension: 0.1 }
+                ]
+            },
+            options: { scales: { y: { beginAtZero: true } } }
+        });
+
+        async function updateCharts() {
+            try {
+                const response = await fetch("{{ url_for('api_stats_history') }}");
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
+
+                // Update CPU/Mem Chart
+                cpuMemChart.data.labels = data.labels;
+                cpuMemChart.data.datasets[0].data = data.cpu;
+                cpuMemChart.data.datasets[1].data = data.mem;
+                cpuMemChart.update();
+
+                // Update Network Chart
+                netChart.data.labels = data.labels;
+                netChart.data.datasets[0].data = data.net_sent;
+                netChart.data.datasets[1].data = data.net_recv;
+                netChart.update();
+
+            } catch (e) {
+                console.error("Failed to fetch stats:", e);
+            }
+        }
+
+        // Update charts on load and then every 10 seconds
+        updateCharts();
+        setInterval(updateCharts, 10000); 
+    </script>
+</body>
+</html>
