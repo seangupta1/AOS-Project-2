@@ -2,5 +2,4 @@ flask
 flask-mysqldb
 psutil
 werkzeug
-apscheduler
 gunicorn

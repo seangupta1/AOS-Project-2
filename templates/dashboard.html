@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Your Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-
 </head>
 
 <body>
@@ -50,15 +49,7 @@
                 onclick="document.getElementById('fileInput').click();">Upload File</button>
         </form>
 
-        {% if session.role == 'admin' %}
-        <a href="{{ url_for('monitoring') }}" class="button-dashboard">View Monitoring</a>
-        <a href="{{ url_for('logs') }}" class="button-dashboard">View Logs</a>
-        <!-- <a href="{{ url_for('configurations_page') }}" class="button-dashboard">⚙ Configurations</a> -->
-        <a href="{{ url_for('backup.backups_page') }}" class="button-dashboard">Manage Backups</a>
-        {% endif %}
-
-
-        <form method="POST" action="{{ url_for('logout') }}" style="margin-left: 20px;">
+        <form method="POST" action="{{ url_for('logout') }}">
             <button class="button-dashboard" type="submit">Logout</button>
         </form>
         
@@ -158,30 +149,6 @@
             </table>
         </div>
     </div>
-
-    <script>
-        function fetchSimpleStats() {
-            // We need a *new* simple API for this, or we can re-use the old one
-            // Let's assume you still have the old "api_stats" for this.
-            fetch("{{ url_for('api_stats_snapshot') }}")
-                .then(r => r.json())
-                .then(d => {
-                    if (d.error) return;
-
-                    // Update Text Stats
-                    document.getElementById('cpu-percent').innerText = d.cpu_percent.toFixed(1);
-                    document.getElementById('mem-percent').innerText = d.mem_percent.toFixed(1);
-                    document.getElementById('disk-percent').innerText = d.disk_percent.toFixed(1);
-                    document.getElementById('disk-used').innerText = d.disk_used_gb;
-                    document.getElementById('disk-total').innerText = d.disk_total_gb;
-
-                }).catch(e => console.error(e));
-        }
-
-        // Run the function
-        fetchSimpleStats();
-        setInterval(fetchSimpleStats, 3000); 
-    </script>
 </body>
 
 </html>
