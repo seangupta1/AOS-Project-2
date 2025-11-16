@@ -36,6 +36,10 @@ app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
 
 mysql = MySQL(app)
 
+MAX_ATTEMPTS = 3
+LOCKOUT_MINUTES = 2
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
 # File upload configuration
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 if not os.path.exists(UPLOAD_FOLDER):
@@ -87,6 +91,14 @@ def upload_file():
         flash('Invalid file type.')
         return redirect(request.url)
 
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+
+    if file_size > MAX_FILE_SIZE:
+        flash(f"File is too large. Maximum allowed size is {MAX_FILE_SIZE // (1024*1024)} MB.")
+        return redirect(url_for('dashboard'))
+
     user_id = session['id']
     folder_id = request.form.get('folder_id')
     folder_id = int(folder_id) if str(folder_id).isdigit() else None
@@ -115,7 +127,11 @@ def upload_file():
     original_name = secure_filename(file.filename)
     mime_type = file.mimetype or mimetypes.guess_type(original_name)[0]
     size = new_file_size 
+    size = len(file.read())
+    file.seek(0)  # reset stream after reading size
 
+    # Insert DB record first to get file ID
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("""
         INSERT INTO files (user_id, folder_id, original_name, mime_type, size)
         VALUES (%s, %s, %s, %s, %s)
