@@ -69,10 +69,6 @@
                     <button class="button-dashboard" type="button">🏠 Home</button>
                 </a>
 
-                <a href="{{ url_for('dashboard') }}">
-                    <button class="button-dashboard" type="button">🏠 Home</button>
-                </a>
-
                 <a href="{{ url_for('dashboard', folder=parent_id if parent_id else '') }}">
                     <button type="button" class="button-dashboard">⬅ Back</button>
                 </a>
