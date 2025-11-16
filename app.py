@@ -1,64 +1,24 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, make_response, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, make_response, send_file
 from flask_mysqldb import MySQL
 import MySQLdb.cursors
 import re
 import os
 import mimetypes
 from werkzeug.utils import secure_filename
-import psutil
-import logging
-from functools import wraps
-import threading
-import time
-from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash, check_password_hash
-from backup_manager import BackupManager
-from routes_backup import backup_bp
-from utils import admin_required
 
 app = Flask(__name__)
-app.register_blueprint(backup_bp)
 app.secret_key = 'password'
 
-# --- START LOGGING CONFIG ---
-log_file = '/tmp/nas_app.log'
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-# --- END LOGGING CONFIG ---
-
 # MySQL configuration
-app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
-app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'seangupta')
-app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'password')
-app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
-
-# Backup directories
-DB_BACKUP_DIR = os.environ.get('DB_BACKUP_DIR', './db_backups')
-CONFIG_BACKUP_DIR = os.environ.get('CONFIG_BACKUP_DIR', './config_backups')
-CONFIG_FILES_DIR = os.environ.get('CONFIG_FILES_DIR', './config_files')
-
-# Update the Upload folder to be flexible
-UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
+app.config['MYSQL_HOST'] = 'localhost'
+app.config['MYSQL_USER'] = 'seangupta'
+app.config['MYSQL_PASSWORD'] = 'password'
+app.config['MYSQL_DB'] = 'nas_web'
 
 mysql = MySQL(app)
 
-# Initialize BackupManager
-backup_manager = BackupManager(
-    db_name=app.config['MYSQL_DB'],
-    db_user=app.config['MYSQL_USER'],
-    db_password=app.config['MYSQL_PASSWORD'],
-    db_host=app.config["MYSQL_HOST"],
-    db_backup_dir=DB_BACKUP_DIR,
-    config_backup_dir=CONFIG_BACKUP_DIR,
-    config_files_dir=CONFIG_FILES_DIR
-)
-
-MAX_ATTEMPTS = 999
-LOCKOUT_MINUTES = 0
-
+# Upload configuration
+UPLOAD_FOLDER = '/var/www/uploads/'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -120,7 +80,6 @@ def upload_file():
     file.save(filepath)
 
     flash('File uploaded successfully.')
-    app.logger.info(f"User '{session['username']}' uploaded file '{original_name}'")
     
     if folder_id:
         # stay inside the folder view
@@ -321,7 +280,6 @@ def delete_folder():
     else:
         return redirect(url_for('dashboard'))
 
-
 def delete_folder_recursive(cursor, folder_id, user_id):
     # Delete subfolders recursively
     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
@@ -329,10 +287,28 @@ def delete_folder_recursive(cursor, folder_id, user_id):
     for sub in sub_folders:
         delete_folder_recursive(cursor, sub['id'], user_id)
 
-    # Delete all files in this folder
+    # Fetch all files in this folder
+    cursor.execute("SELECT id, original_name FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
+    files = cursor.fetchall()
+
+    for file_record in files:
+        file_id = file_record['id']
+        ext = os.path.splitext(file_record['original_name'])[1]
+        storage_name = f"{file_id}{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, storage_name)
+
+        # Try to delete the file from disk
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"Deleted file: {filepath}")
+        except Exception as e:
+            print(f"Error deleting {filepath}: {e}")
+
+    # Delete file records from the DB
     cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
 
-    # Finally, delete the folder itself
+    # Delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
 
@@ -345,6 +321,7 @@ def dashboard():
         return redirect(url_for('login'))
     
     folder_id = None
+    folder_name = ""
 
     if request.method == "POST":
         folder_id = request.form.get('folder_id')  # <-- get it from form data
@@ -372,6 +349,13 @@ def dashboard():
         else:
             flash("Folder not found.")
             return redirect(url_for('dashboard'))
+        
+        # Get current folder name
+        cursor.execute(
+            "SELECT name FROM folders WHERE id = %s AND user_id = %s",
+            (current_folder_id, session['id'])
+        )
+        folder_name = cursor.fetchone()['name']
 
     # Fetch folders
     if current_folder_id is not None:
@@ -404,7 +388,8 @@ def dashboard():
         folders=folders,
         files=files,
         current_folder_id=current_folder_id,
-        parent_id=parent_id
+        parent_id=parent_id,
+        folder_name=folder_name
     ))
 
     # Prevent caching
@@ -414,6 +399,15 @@ def dashboard():
 
     return response
 
+def human_readable_size(size):
+    # size in bytes
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1_000:
+            return f"{size:.1f} {unit}"
+        size /= 1_000 # using 1_000 instead of 1_024 becasue this will match mac finder file size
+    return f"{size:.1f} GB"
+
+app.jinja_env.filters['human_size'] = human_readable_size
 
 # ----------------------------
 # DOWNLOAD FILE
@@ -530,71 +524,17 @@ def login_request():
     password = request.form.get("password")
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+    cursor.execute('SELECT * FROM users WHERE username = %s AND password = %s', (username, password))
     account = cursor.fetchone()
-    now = datetime.now()
 
     if account:
-        cursor.execute('SELECT * FROM login_attempts WHERE user_id = %s', (account['id'],))
-        attempt_record = cursor.fetchone()
-
-        if attempt_record:
-            attempts = attempt_record['attempts']
-            last_failed = attempt_record['last_failed']
-
-            if last_failed and isinstance(last_failed, str):
-                last_failed = datetime.strptime(last_failed, '%Y-%m-%d %H:%M:%S')
-
-            lockout_end = (last_failed + timedelta(minutes=LOCKOUT_MINUTES)) if last_failed else None
-            if lockout_end and now < lockout_end and attempts >= MAX_ATTEMPTS:
-                remaining = int((lockout_end - now).total_seconds() // 60) + 1
-                msg = f"Account locked. Try again in {remaining} minute(s)."
-                return render_template("login.html", msg=msg)
-        else:
-            cursor.execute("""
-                INSERT INTO login_attempts (user_id, attempts, last_failed)
-                VALUES (%s, 0, NULL)
-            """, (account['id'],))
-            mysql.connection.commit()
-            attempts = 0
-            last_failed = None
-
-        if check_password_hash(account['password'], password):
-            # Reset login attempts
-            cursor.execute("""
-                UPDATE login_attempts
-                SET attempts = 0, last_failed = NULL
-                WHERE user_id = %s
-            """, (account['id'],))
-            mysql.connection.commit()
-
-            session['loggedin'] = True
-            session['id'] = account['id']
-            session['username'] = account['username']
-            session['role'] = account['role']
-            app.logger.info(f"User '{username}' logged in successfully.") 
-            return redirect(url_for('dashboard'))
-        else:
-            # Increment failed login attempts
-            attempts += 1
-            cursor.execute("""
-                UPDATE login_attempts
-                SET attempts = %s, last_failed = %s
-                WHERE user_id = %s
-            """, (attempts, now, account['id']))
-            mysql.connection.commit()
-
-            if attempts >= MAX_ATTEMPTS:
-                msg = f"Account locked due to too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes."
-            else:
-                remaining = MAX_ATTEMPTS - attempts
-                msg = f"Invalid password. {remaining} attempt(s) remaining."
-
-            return render_template("login.html", msg=msg)
+        session['loggedin'] = True
+        session['id'] = account['id']
+        session['username'] = account['username']
+        session['role'] = account['role']
+        return redirect(url_for('dashboard'))
     else:
-        app.logger.warning(f"Failed login attempt for username: {username}")
         return render_template("login.html", msg="Invalid username or password.")
-    
 
 
 @app.route("/register_request", methods=["POST"])
@@ -611,8 +551,7 @@ def register_request():
     elif not re.match(r'^[A-Za-z0-9]+$', username):
         msg = 'Username must contain only letters and numbers!'
     else:
-        hashed_password = generate_password_hash(password, method="pbkdf2:sha256:260000")
-        cursor.execute('INSERT INTO users (username, password, role) VALUES (%s, %s, %s)', (username, hashed_password, 'user'))
+        cursor.execute('INSERT INTO users (username, password, role) VALUES (%s, %s, %s)', (username, password, 'user'))
         mysql.connection.commit()
         return redirect(url_for('login'))
 
@@ -667,184 +606,6 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ----------------------------
-# SYSTEM MONITORING API
-# ----------------------------
-
-def bytes_to_gb(bytes_val):
-    gb = bytes_val / (1024**3); return round(gb, 2)
-
-@app.route("/api/stats_history")
-@admin_required
-def api_stats_history():
-    """Provides system stats from the last hour."""
-    try:
-        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        # Get all stats from the last hour, ordered by time
-        cursor.execute("""
-            SELECT timestamp, cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps 
-            FROM system_stats 
-            WHERE timestamp > (NOW() - INTERVAL 1 HOUR)
-            ORDER BY timestamp ASC
-        """)
-        stats = cursor.fetchall()
-
-        # We need to format the data for Chart.js
-        # It wants "labels" (timestamps) and "datasets" (the numbers)
-        formatted_data = {
-            "labels": [s['timestamp'].strftime('%I:%M:%S %p') for s in stats],
-            "cpu": [s['cpu_percent'] for s in stats],
-            "mem": [s['mem_percent'] for s in stats],
-            "net_sent": [s['net_sent_mbps'] for s in stats],
-            "net_recv": [s['net_recv_mbps'] for s in stats],
-        }
-        return jsonify(formatted_data)
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-@app.route("/api/stats_snapshot")
-def api_stats_snapshot():
-    """Provides a single, current snapshot of system stats."""
-    try:
-        # Use root '/' for disk usage, as it's more reliable in Docker
-        disk = psutil.disk_usage('/') 
-
-        stats = {
-            "cpu_percent": psutil.cpu_percent(interval=None),
-            "mem_percent": psutil.virtual_memory().percent,
-            "disk_percent": disk.percent,
-            "disk_used_gb": bytes_to_gb(disk.used),
-            "disk_total_gb": bytes_to_gb(disk.total)
-        }
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/logs")
-@admin_required
-def api_logs():
-    """Provides last 50 lines of the application log as JSON objects."""
-    if 'loggedin' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    log_file_path = '/tmp/nas_app.log' # <-- The correct path
-    logs = []
-
-    try:
-        if not os.path.exists(log_file_path):
-             # Create the file if it doesn't exist
-            with open(log_file_path, 'a') as f:
-                f.write("Log file created.\n")
-            return jsonify({"logs": []})
-
-        with open(log_file_path, 'r') as f:
-            # Read all lines and get the last 50
-            lines = f.readlines()
-            last_50_lines = lines[-50:]
-            last_50_lines.reverse() # Show newest first
-            
-            for line in last_50_lines:
-                try:
-                    # Parse the log line based on our format:
-                    # '2025-11-04 11:10:00,123 - INFO - User 'admin' logged in'
-                    parts = line.split(' - ', 2)
-                    logs.append({
-                        "timestamp": parts[0].strip(),
-                        "level": parts[1].strip(),
-                        "message": parts[2].strip()
-                    })
-                except Exception:
-                    # If a line doesn't match, just add it as a raw message
-                    if line.strip():
-                        logs.append({
-                            "timestamp": "N/A",
-                            "level": "RAW",
-                            "message": line.strip()
-                        })
-
-        return jsonify({"logs": logs})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/logs")
-@admin_required
-def logs():
-    """Serves the dedicated log page."""
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
-    
-    return render_template("logs.html")
-
-# ----------------------------
-# Configurations page
-# ----------------------------
-
-@app.route('/admin/configurations')
-def configurations_page():
-    return render_template("configurations.html")
-
-# --- BACKGROUND STATS COLLECTOR ---
-
-def get_network_io():
-    """Returns network I/O in Megabits per second (Mbps)."""
-    # Get counters now
-    counter_now = psutil.net_io_counters()
-    time.sleep(1) # Wait 1 second
-    # Get counters after 1 second
-    counter_later = psutil.net_io_counters()
-
-    # Calculate bytes per second
-    sent_bps = counter_later.bytes_sent - counter_now.bytes_sent
-    recv_bps = counter_later.bytes_recv - counter_now.bytes_recv
-
-    # Convert bytes/sec to Megabits/sec
-    sent_mbps = (sent_bps * 8) / (1024 * 1024)
-    recv_mbps = (recv_bps * 8) / (1024 * 1024)
-
-    return round(sent_mbps, 2), round(recv_mbps, 2)
-
-def stats_collector_loop():
-    """A background thread loop that collects stats every 10 seconds."""
-    print("Starting background stats collector thread...")
-    with app.app_context(): # We need an app context to access the database
-        while True:
-            try:
-                cpu = psutil.cpu_percent(interval=None)
-                mem = psutil.virtual_memory().percent
-                net_sent, net_recv = get_network_io()
-
-                # Connect to DB and insert
-                cursor = mysql.connection.cursor()
-                cursor.execute("""
-                    INSERT INTO system_stats (cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps)
-                    VALUES (%s, %s, %s, %s)
-                """, (cpu, mem, net_sent, net_recv))
-                mysql.connection.commit()
-
-                # Also, clean up old data (older than 1 hour)
-                cursor.execute("""
-                    DELETE FROM system_stats 
-                    WHERE timestamp < (NOW() - INTERVAL 1 HOUR)
-                """)
-                mysql.connection.commit()
-                cursor.close()
-
-            except Exception as e:
-                print(f"Error in stats collector thread: {e}")
-
-            time.sleep(10) # Wait 10 seconds before next collection
-
-# --- START THE THREAD ---
-#collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
-#collector_thread.start()
-
-@app.route("/monitoring")
-@admin_required
-def monitoring():
-    """Serves the dedicated monitoring chart page."""
-    return render_template("monitoring.html")
 
 if __name__ == "__main__":
     app.run(debug=True)

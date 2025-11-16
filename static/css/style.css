@@ -16,15 +16,6 @@ body {
     padding: 0;
 }
 
-.backup-list {
-    max-height: 300px;   /* Adjust the height as needed */
-    overflow-y: auto;    /* Enables vertical scrolling */
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    background-color: #f9f9f9;
-}
-
 .button-yellow {
     background-color: var(--secondary-color);
     border: none;
@@ -55,23 +46,6 @@ body {
 }
 .button-dashboard:hover {
     background-color: var(--secondary-color-darker)
-}
-
-.button-delete {
-    background-color: #e74c3c; /* Red */
-    border: none;
-    border-radius: 10px;
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: bold;
-    padding: 8px 15px;
-    margin-left: 10px;
-    transition: background-color 0.2s ease;
-}
-
-.button-delete:hover {
-    background-color: #c0392b; /* Darker red on hover */
 }
 
 .button-delete-account{
@@ -126,7 +100,7 @@ body {
     display: flex;
     flex-direction: column;
     margin: 10px 50px;
-    padding-top: 20px;
+    padding-top: 5px;
     text-align: left;
     width: calc(100% - 100px);
 }
@@ -278,28 +252,9 @@ body {
 .div-user-files-nav {
     display: flex;
     flex-direction: row;
+    align-items: center;
 }
 
-.table-user-files tbody tr.log-warning td {
-    background-color: #6e4d00; /* A dark gold/orange */
-    font-weight: bold;
-    color: #FFD100; /* UMKC Gold */
-}
-.table-user-files tbody tr.log-error td {
-    background-color: #5c0000; /* A dark red */
-    font-weight: bold;
-    color: #ffaaaa;
-}
-.input-dashboard {
-    background-color: var(--primary-color);
-    border: 2px solid var(--secondary-color);
-    border-radius: 10px;
-    color: var(--secondary-color);
-    padding: 5px 10px;
-    width: 60px;
-    font-weight: bold;
-    text-align: center;
-}
-.input-dashboard:focus {
-    outline: none;
+.folder_name {
+    margin-left: 20px;
 }
