@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Backups</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="general_container">
+    <h2>Available Backups</h2>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul>
+          {% for msg in messages %}
+            <li>{{ msg }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Existing Backups -->
+    <div class="simple_container backup-list" style="flex-direction: column; width: 100%;">
+        {% include 'backups_list.html' %}
+    </div>
+
+    <hr>
+
+    <!-- Manual Backups -->
+    <h3>Manual Backups</h3>
+    <div class="simple_container" style="flex-wrap: wrap; justify-content: center;">
+        <form action="{{ url_for('backup.perform_manual_backup') }}" method="POST" style="margin:5px;">
+            <button type="submit" class="button-dashboard">Backup Database Now</button>
+        </form>
+        <form action="{{ url_for('backup.perform_config_backup') }}" method="POST" style="margin:5px;">
+            <button type="submit" class="button-dashboard">Backup Configuration Now</button>
+        </form>
+    </div>
+
+    <hr>
+
+    <!-- Automatic Backup Settings -->
+    <h3>Automatic Backup Settings</h3>
+    <div class="simple_container" style="flex-direction: column; align-items: center; padding: 20px; gap: 20px;">
+        <form id="auto-backup-form" action="{{ url_for('backup.start_auto_backup') }}" method="POST"
+              style="display:flex; flex-direction:column; align-items:center; gap:15px; width:100%; max-width:400px;">
+            
+            <label style="font-weight:bold; display:block; margin-bottom:8px; text-align:center;">
+                Backup Interval
+            </label>
+
+            <select id="interval-mode" class="input-dashboard" style="width:100%; max-width:250px;">
+                <option value="default">Use Current ({{ backup_frequency or 'Disabled' }})</option>
+                <option value="5">Every 5 minutes</option>
+                <option value="15">Every 15 minutes</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="60">Every 1 hour</option>
+                <option value="custom">Custom…</option>
+            </select>
+
+            <input type="number" min="1" id="custom-interval" placeholder="Enter minutes"
+                   class="input-dashboard" style="width:100%; max-width:200px; text-align:center; display:none;">
+
+            <input type="hidden" name="interval" id="interval-value" value="">
+
+            <button type="submit" class="button-dashboard" style="width:150px;">Enable</button>
+        </form>
+
+        <form action="{{ url_for('backup.stop_auto_backup') }}" method="POST">
+            <button type="submit" class="button-delete" style="background:#c0392b; width:150px;">Disable</button>
+        </form>
+    </div>
+
+    <p id="current-interval" style="margin-top: 10px; text-align: center;">
+      {% if backup_frequency %}
+        Current automatic backup interval: <strong>{{ backup_frequency }}</strong> minute(s)
+      {% else %}
+        Automatic backups are currently disabled.
+      {% endif %}
+    </p>
+
+    <hr>
+
+    <!-- Max Backups Settings -->
+    <h3>Maximum Number of Backups</h3>
+    <div class="simple_container" style="flex-direction: column; align-items: center; padding: 20px; gap: 20px;">
+        <form id="max-backups-form" action="{{ url_for('backup.set_max_backups') }}" method="POST"
+              style="display:flex; flex-direction:column; align-items:center; gap:15px; width:100%; max-width:400px;"
+              data-current-max="{{ max_backups or 0 }}">
+            
+            <label style="font-weight:bold; display:block; margin-bottom:8px; text-align:center;">
+                Maximum Backups
+            </label>
+
+            <select id="max-backups-mode" class="input-dashboard" style="width:100%; max-width:250px;">
+                <option value="current" {% if max_backups != 0 %}selected{% endif %}>Use Current ({{ max_backups or 'Unlimited' }})</option>
+                <option value="unlimited" {% if max_backups == 0 %}selected{% endif %}>Unlimited</option>
+                <option value="custom">Custom…</option>
+            </select>
+
+            <input type="number" min="1" id="custom-max-backups" placeholder="Enter maximum backups"
+                   class="input-dashboard" style="width:100%; max-width:200px; text-align:center; display:none;">
+
+            <input type="hidden" name="max_backups" id="max-backups-value" value="">
+
+            <button type="submit" class="button-dashboard" style="width:150px;">Set Max</button>
+        </form>
+    </div>
+
+</div>
+
+<script>
+// ---------- Interval Logic ----------
+const intervalMode = document.getElementById('interval-mode');
+const customInterval = document.getElementById('custom-interval');
+const intervalForm = document.getElementById('auto-backup-form');
+const intervalHidden = document.getElementById('interval-value');
+const intervalDisplay = document.getElementById('current-interval');
+
+intervalMode.addEventListener('change', () => {
+    if (intervalMode.value === 'custom') {
+        customInterval.style.display = 'block';
+        customInterval.value = '';
+        updateIntervalDisplay();
+    } else {
+        customInterval.style.display = 'none';
+        if (intervalMode.value !== 'default') {
+            intervalDisplay.textContent = `Current automatic backup interval: ${intervalMode.value} minute(s)`;
+        }
+    }
+});
+
+customInterval.addEventListener('input', updateIntervalDisplay);
+
+intervalForm.addEventListener('submit', (e) => {
+    if (intervalMode.value === 'custom') {
+        intervalHidden.value = customInterval.value;
+    } else if (intervalMode.value === 'default') {
+        intervalHidden.value = '{{ backup_frequency or 1 }}';
+    } else {
+        intervalHidden.value = intervalMode.value;
+    }
+
+    if (!intervalHidden.value || intervalHidden.value <= 0) {
+        e.preventDefault();
+        alert("Please enter a valid interval.");
+    }
+});
+
+function updateIntervalDisplay() {
+    const val = customInterval.value;
+    if (val && val > 0) {
+        intervalDisplay.textContent = `Current automatic backup interval: ${val} minute(s)`;
+    } else {
+        intervalDisplay.textContent = 'Automatic backups are currently disabled.';
+    }
+}
+
+// ---------- Max Backups Logic ----------
+const maxForm = document.getElementById('max-backups-form');
+const maxMode = document.getElementById('max-backups-mode');
+const customMax = document.getElementById('custom-max-backups');
+const hiddenMax = document.getElementById('max-backups-value');
+
+maxMode.addEventListener('change', () => {
+    if (maxMode.value === 'custom') {
+        customMax.style.display = 'block';
+        customMax.value = '';
+    } else {
+        customMax.style.display = 'none';
+    }
+});
+
+maxForm.addEventListener('submit', (e) => {
+    if (maxMode.value === 'custom') {
+        hiddenMax.value = customMax.value || '';
+    } else if (maxMode.value === 'unlimited') {
+        hiddenMax.value = 'unlimited';
+    } else if (maxMode.value === 'current') {
+        hiddenMax.value = maxForm.dataset.currentMax || '';
+    }
+});
+
+// ---------- Backup List Refresh ----------
+function refreshBackupList() {
+    fetch('{{ url_for("backup.backups_list") }}')
+        .then(resp => resp.text())
+        .then(html => {
+            document.querySelector('.simple_container.backup-list').innerHTML = html;
+        })
+        .catch(err => console.error('Error refreshing backup list:', err));
+}
+setInterval(refreshBackupList, 30000);
+
+// ---------- Confirm Delete ----------
+function confirmDelete(fileName) {
+    return confirm(`Are you sure you want to delete backup "${fileName}"? This action cannot be undone.`);
+}
+</script>
+
+</body>
+</html>

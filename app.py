@@ -12,12 +12,17 @@ from functools import wraps
 import threading
 import time
 from datetime import datetime, timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
+from backup_manager import BackupManager
+from routes_backup import backup_bp
+from utils import admin_required
 import io
 import zipfile
 import json
 import subprocess
 
 app = Flask(__name__)
+app.register_blueprint(backup_bp)
 app.secret_key = 'password'
 
 # Application-wide logging configuration
@@ -34,8 +39,27 @@ app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'nas_user')
 app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'supersecretpassword')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
 
+# Backup directories
+DB_BACKUP_DIR = os.environ.get('DB_BACKUP_DIR', './db_backups')
+CONFIG_BACKUP_DIR = os.environ.get('CONFIG_BACKUP_DIR', './config_backups')
+CONFIG_FILES_DIR = os.environ.get('CONFIG_FILES_DIR', './config_files')
+
 mysql = MySQL(app)
 
+# Initialize BackupManager
+backup_manager = BackupManager(
+    db_name=app.config['MYSQL_DB'],
+    db_user=app.config['MYSQL_USER'],
+    db_password=app.config['MYSQL_PASSWORD'],
+    db_host=app.config["MYSQL_HOST"],
+    db_backup_dir=DB_BACKUP_DIR,
+    config_backup_dir=CONFIG_BACKUP_DIR,
+    config_files_dir=CONFIG_FILES_DIR
+)
+
+MAX_ATTEMPTS = 999
+LOCKOUT_MINUTES = 0
+# Update the Upload folder to be flexible
 # File upload configuration
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
 if not os.path.exists(UPLOAD_FOLDER):
@@ -877,7 +901,6 @@ def api_processes():
             key=lambda p: p.info['cpu_percent'],
             reverse=True
         )[:50]
-
         for proc in all_procs:
             try:
                 processes.append(proc.info)
@@ -887,6 +910,16 @@ def api_processes():
     except Exception as e:
         app.logger.error(f"Error in /api/processes: {e}")
         return jsonify({"error": str(e)}), 500
+    
+# ----------------------------
+# Configurations page
+# ----------------------------
+
+@app.route('/admin/configurations')
+def configurations_page():
+    return render_template("configurations.html")
+
+# --- BACKGROUND STATS COLLECTOR ---
 
 # API: Get active network connections and logged-in users
 @app.route("/api/network_stats")
@@ -1163,6 +1196,9 @@ def stats_collector_loop():
             
             time.sleep(sleep_interval_sec)
 
+            time.sleep(10) # Wait 10 seconds before next collection
+
+# --- START THE THREAD ---
 # Start the background stats collector
 collector_thread = threading.Thread(target=stats_collector_loop, daemon=True)
 collector_thread.start()
