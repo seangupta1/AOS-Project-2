@@ -126,7 +126,7 @@ body {
     display: flex;
     flex-direction: column;
     margin: 10px 50px;
-    padding-top: 20px;
+    padding-top: 5px;
     text-align: left;
     width: calc(100% - 100px);
 }
@@ -278,12 +278,11 @@ body {
 .div-user-files-nav {
     display: flex;
     flex-direction: row;
+    align-items: center;
 }
 
-.table-user-files tbody tr.log-warning td {
-    background-color: #6e4d00; /* A dark gold/orange */
-    font-weight: bold;
-    color: #FFD100; /* UMKC Gold */
+.folder_name {
+    margin-left: 20px;
 }
 .table-user-files tbody tr.log-error td {
     background-color: #5c0000; /* A dark red */
@@ -302,4 +301,146 @@ body {
 }
 .input-dashboard:focus {
     outline: none;
+}
+
+/* ============================================== */
+/* === STYLES MOVED FROM ADMIN_PANEL */
+/* ============================================== */
+
+/* Additional styles for the admin panel */
+.admin-chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* This creates the 2x2 grid */
+    gap: 20px;
+    margin: 20px 50px;
+}
+
+.admin-box {
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    padding: 20px;
+    /* Force chart to be contained */
+    position: relative; 
+    height: 400px;
+}
+.admin-box-full {
+    grid-column: 1 / -1; /* Span full width */
+    height: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+.admin-box canvas {
+    max-height: 350px;
+    width: 100%;
+}
+
+/* Table styles */
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+}
+.admin-table th, .admin-table td {
+    border: 1px solid var(--secondary-color);
+    padding: 8px;
+    text-align: left;
+}
+.admin-table th {
+    background-color: var(--primary-color-lighter);
+}
+
+/* Specific styles from other pages */
+.status-ACTIVE { color: #198754; font-weight: bold; }
+.status-INACTIVE { color: #dc3545; font-weight: bold; }
+.status-ERROR { color: #ffc107; font-weight: bold; }
+
+.alert-row.is-read {
+    color: #888;
+    opacity: 0.5; /* Fades out dismissed alerts */
+}
+.alert-level-ERROR { color: red; font-weight: bold; }
+.alert-level-WARNING { color: #ffc107; font-weight: bold; }
+
+.btn-dismiss {
+     background-color: var(--secondary-color);
+    border: none;
+    border-radius: 5px;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 5px 10px;
+}
+.btn-dismiss:hover { background-color: var(--secondary-color-darker); }
+.btn-dismiss:disabled { background-color: #6c757d; color: #ccc; cursor: not-allowed; }
+
+/* Style for the storage report table */
+.table-user-files { margin: 0; width: 100%; }
+.table-user-files input[type="number"] { width: 60px; }
+.table-user-files .button-dashboard { padding: 5px 10px; font-size: 14px; margin: 0 5px;}
+
+/* === New Layout Rules for Admin Panel === */
+.admin-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* <-- THIS IS THE FIX: Changed from 3 columns to 2 */
+    gap: 20px;
+    margin: 20px 50px;
+}
+
+/* Container for full-width tables */
+.admin-full-width-container {
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    padding: 20px;
+    margin: 20px 50px;
+}
+
+/* The actual scrollable part INSIDE the container */
+.admin-scroll-box {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Style for the h2 titles now outside the scroll box */
+.admin-full-width-container h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary-color-lighter);
+}
+
+/* ============================================== */
+/* ===    Styles for System Overview Panel    === */
+/* ============================================== */
+
+.quota-bar-bg { 
+    background-color: #eee; 
+    border-radius: 5px; 
+    padding: 3px; 
+    border: 1px solid var(--secondary-color); 
+}
+.quota-bar-fg { 
+    background-color: #0d6efd; 
+    border-radius: 3px; 
+    color: white; 
+    text-align: right; 
+    padding: 2px 5px; 
+    min-height: 20px; 
+    line-height: 20px; 
+    white-space: nowrap; 
+    max-width: 100%; 
+    /* Add transition for smooth updates */
+    transition: width 0.5s ease-in-out, background-color 0.5s ease;
+}
+
+/* --- ADDED RULES --- */
+
+/* Targets <a> tags in the nav bar and file table */
+.simple_container a,
+.user-files-container a {
+    text-decoration: none;
+}
+
+/* Targets the small delete/rename forms in the file table */
+.table-user-files form {
+    display: inline;
 }
