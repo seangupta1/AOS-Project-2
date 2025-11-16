@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS folders (
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY parent_id (parent_id),
-    CONSTRAINT folders_ibfk_1 FOREIGN KEY (parent_id) REFERENCES folders (id)
+    KEY user_id_fk (user_id),
+    CONSTRAINT folders_ibfk_1 FOREIGN KEY (parent_id) REFERENCES folders (id),
+    CONSTRAINT folders_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 -- Files table
@@ -35,17 +37,30 @@ CREATE TABLE IF NOT EXISTS files (
     uploaded_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY folder_id (folder_id),
-    CONSTRAINT files_ibfk_1 FOREIGN KEY (folder_id) REFERENCES folders (id)
+    KEY user_id_fk (user_id),
+    CONSTRAINT files_ibfk_1 FOREIGN KEY (folder_id) REFERENCES folders (id),
+    CONSTRAINT files_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 -- System monitoring stats table
 CREATE TABLE IF NOT EXISTS system_stats (
     id INT NOT NULL AUTO_INCREMENT,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    cpu_percent FLOAT,
-    mem_percent FLOAT,
-    net_sent_mbps FLOAT,
-    net_recv_mbps FLOAT,
+    cpu_percent FLOAT DEFAULT NULL,
+    mem_percent FLOAT DEFAULT NULL,
+    net_sent_mbps FLOAT DEFAULT NULL,
+    net_recv_mbps FLOAT DEFAULT NULL,
+    disk_read_mbps FLOAT DEFAULT NULL,
+    disk_write_mbps FLOAT DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INT NOT NULL AUTO_INCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    level VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    is_read TINYINT(1) DEFAULT '0',
     PRIMARY KEY (id)
 );
 
