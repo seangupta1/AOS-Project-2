@@ -11,7 +11,6 @@
 <body>
     <header class="dashboard_header">
         <div>
-            <!-- Delete Account -->
             <button class="button-delete-account"
                 onclick="document.getElementById('deleteAccountDialog').showModal()">Delete
                 Account</button>
@@ -32,7 +31,6 @@
     </header>
 
     <div class="simple_container">
-        <!-- Create Folder -->
         <button class="button-dashboard" onclick="document.getElementById('createFolderDialog').showModal()">Create
             Folder</button>
         <dialog class="dialog-create-folder" id="createFolderDialog">
@@ -44,7 +42,6 @@
             </form>
         </dialog>
 
-        <!-- Upload File -->
         <form method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data">
             <input type="hidden" name="folder_id" value="{{ current_folder_id }}">
             <input type="file" name="file" style="display:none" id="fileInput" onchange="this.form.submit();">
@@ -52,30 +49,37 @@
                 onclick="document.getElementById('fileInput').click();">Upload File</button>
         </form>
 
-        <!-- Logout -->
         <form method="POST" action="{{ url_for('logout') }}">
             <button class="button-dashboard" type="submit">Logout</button>
         </form>
+        
+        {% if role == 'admin' %}
+          <a href="{{ url_for('admin_monitoring_panel') }}">
+            <button class="button-dashboard" type="button">Monitoring</button>
+          </a>
+        {% endif %}
     </div>
 
     <div class="user-files-container">
         <div>
             <div class="div-user-files-nav">
-                <!-- Only if in subfolder -->
                 {% if current_folder_id %}
-                <!-- Home -->
-                <form method="POST" action="{{ url_for ('dashboard') }}">
-                    <button class="button-dashboard" type="submit">🏠 Home</button>
-                </form>
+                
+                <a href="{{ url_for('dashboard') }}">
+                    <button class="button-dashboard" type="button">🏠 Home</button>
+                </a>
 
-                <!-- Back -->
-                <form method="POST" action="{{ url_for('dashboard') }}" style="display:inline;">
-                    <input type="hidden" name="folder_id" value="{{ parent_id }}">
-                    <button type="submit" class="button-dashboard">⬅ Back</button>
-                </form>
+                <a href="{{ url_for('dashboard') }}">
+                    <button class="button-dashboard" type="button">🏠 Home</button>
+                </a>
 
-                <!-- Current folder name -->
-                 <h3 class="folder_name">📁 {{ folder_name }}</h3>
+                <a href="{{ url_for('dashboard', folder=parent_id if parent_id else '') }}">
+                    <button type="button" class="button-dashboard">⬅ Back</button>
+                </a>
+
+                <!-- Current folder name, visible only when inside a folder -->
+                <h3 class="folder_name">📁 {{ folder_name }}</h3>
+
                 {% endif %}
             </div>
 
@@ -92,15 +96,14 @@
                     {% for folder in folders %}
                     <tr>
                         <td>
-                            <form method="POST" action="{{ url_for('dashboard') }}" style="display:inline;">
-                                <input type="hidden" name="folder_id" value="{{ folder.id }}">
-                                <button type="submit" class="button-dashboard">{{ folder.name }}</button>
-                            </form>
+                            <a href="{{ url_for('dashboard', folder=folder.id) }}">
+                                <button type="button" class="button-dashboard">{{ folder.name }}</button>
+                            </a>
                         </td>
                         <td>Folder</td>
                         <td></td>
                         <td>
-                            <form method="POST" action="{{ url_for('delete_folder') }}" style="display:inline;">
+                            <form method="POST" action="{{ url_for('delete_folder') }}">
                                 <input type="hidden" name="folder_id" value="{{ folder.id }}">
                                 <input type="hidden" name="parent_id" value="{{ current_folder_id or '' }}">
                                 <button class="button-dashboard" type="submit">🗑️ Delete</button>
@@ -131,7 +134,7 @@
                         <td>{{ file.mime_type }}</td>
                         <td>{{ file.size | human_size }}</td>
                         <td>
-                            <form method="POST" action="{{ url_for('delete_file') }}" style="display:inline;">
+                            <form method="POST" action="{{ url_for('delete_file') }}">
                                 <input type="hidden" name="file_id" value="{{ file.id }}">
                                 <input type="hidden" name="parent_id" value="{{ current_folder_id or '' }}">
                                 <button class="button-dashboard" type="submit">🗑️ Delete</button>
