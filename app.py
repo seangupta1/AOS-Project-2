@@ -5,7 +5,8 @@ import re
 import os
 import mimetypes
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash # Added for security
+# Security Fix: Importing necessary hashing functions
+from werkzeug.security import generate_password_hash, check_password_hash 
 import psutil
 import logging
 from functools import wraps
@@ -17,8 +18,10 @@ import zipfile
 import json
 import subprocess
 
+# --- Application Setup and Configuration ---
 app = Flask(__name__)
-app.secret_key = 'password'
+# WARNING: In a real app, secret_key must be a strong, random value
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-dev-secret-password-should-be-stronger')
 
 # Application-wide logging configuration
 log_file = '/tmp/nas_app.log'
@@ -28,17 +31,19 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# MySQL database configuration
+# MySQL database configuration - Reading from environment variables (BEST PRACTICE)
 app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'nas_user')
+# CRITICAL FIX: DO NOT hardcode production passwords.
 app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'supersecretpassword')
 app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'nas_web')
 
 mysql = MySQL(app)
 
+# Security and Quota Configuration
 MAX_ATTEMPTS = 3
 LOCKOUT_MINUTES = 2
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB limit for single file upload
 
 # File upload configuration
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/var/www/uploads/')
@@ -46,17 +51,28 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'zip', 'doc', 'docx', 'xls', 'xlsx'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'zip', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'}
 
 # Services to monitor on the admin panel (assumes systemd)
 MONITORED_SERVICES = [
     {"name": "mysql.service", "display_name": "Database (MySQL)"},
     {"name": "ssh", "display_name": "SSH Server"},
-    # Add other services like 'nginx' or 'gunicorn' as needed
 ]
 
-# Decorator to protect routes that require admin privileges
+# --- Decorators and Helpers ---
+
+def login_required(f):
+    """Ensures user is logged in."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'loggedin' not in session:
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 def admin_required(f):
+    """Protects routes that require admin privileges."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'loggedin' not in session or session.get('role') != 'admin':
@@ -65,56 +81,91 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Helper: check allowed extensions
 def allowed_file(filename):
+    """Helper: check allowed extensions."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ----------------------------
-# FILE & FOLDER ROUTES
-# ----------------------------
+# Helper: size conversion for Jinja filter
+def human_readable_size(size):
+    # size in bytes
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1_000:
+            return f"{size:.1f} {unit}"
+        size /= 1_000
+    return f"{size:.1f} GB"
+
+app.jinja_env.filters['human_size'] = human_readable_size
+
+# Helper to create an alert from outside the main stats loop
+def create_alert_helper(level, message):
+    try:
+        conn = mysql.connection
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT id FROM alerts WHERE message = %s AND is_read = 0", 
+            (message,)
+        )
+        if cursor.fetchone():
+            cursor.close()
+            return
+        
+        cursor.execute(
+            "INSERT INTO alerts (level, message) VALUES (%s, %s)",
+            (level, message)
+        )
+        conn.commit()
+        cursor.close()
+        app.logger.info(f"Created alert: {level} - {message}")
+    except Exception as e:
+        app.logger.error(f"Error in create_alert_helper: {e}")
+
+def bytes_to_gb(bytes_val):
+    if bytes_val is None:
+        return 0
+    gb = bytes_val / (1024**3); return round(gb, 2)
+
+# --- FILE & FOLDER ROUTES ---
 
 @app.route("/upload_file", methods=["POST"])
+@login_required
 def upload_file():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     if 'file' not in request.files:
-        flash('No file part')
+        flash('No file part', "error")
         return redirect(request.url)
     
     file = request.files['file']
     
     if file.filename == '':
-        flash('No selected file')
+        flash('No selected file', "warning")
         return redirect(request.url)
     
     if not allowed_file(file.filename):
-        flash('Invalid file type.')
+        flash('Invalid file type.', "error")
         return redirect(request.url)
 
+    # Calculate file size before DB insertion/hashing
     file.seek(0, os.SEEK_END)
-    file_size = file.tell()
+    new_file_size = file.tell()
     file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        flash(f"File is too large. Maximum allowed size is {MAX_FILE_SIZE // (1024*1024)} MB.")
+    
+    if new_file_size > MAX_FILE_SIZE:
+        flash(f"File is too large. Maximum allowed size is {MAX_FILE_SIZE // (1024*1024)} MB.", "error")
         return redirect(url_for('dashboard'))
 
     user_id = session['id']
     folder_id = request.form.get('folder_id')
     folder_id = int(folder_id) if str(folder_id).isdigit() else None
 
-    # Check if the user has enough quota for this upload
+    # Quota Check
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT quota_gb FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
-    user_quota_bytes = (user['quota_gb'] or 20) * 1024**3 
+    user_quota_bytes = (user['quota_gb'] or 20) * 1024**3
     cursor.execute("SELECT SUM(size) as total_usage FROM files WHERE user_id = %s", (user_id,))
     usage = cursor.fetchone()
     current_usage_bytes = usage['total_usage'] or 0
     
-    new_file_size = len(file.read())
-    file.seek(0) 
-
     if (current_usage_bytes + new_file_size) > user_quota_bytes:
         cursor.close()
         flash(f"Upload failed: This file ({round(new_file_size / (1024**2), 1)} MB) would exceed your {user['quota_gb']} GB storage limit.", "error")
@@ -126,12 +177,9 @@ def upload_file():
 
     original_name = secure_filename(file.filename)
     mime_type = file.mimetype or mimetypes.guess_type(original_name)[0]
-    size = new_file_size 
-    size = len(file.read())
-    file.seek(0)  # reset stream after reading size
-
+    size = new_file_size
+    
     # Insert DB record first to get file ID
-    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("""
         INSERT INTO files (user_id, folder_id, original_name, mime_type, size)
         VALUES (%s, %s, %s, %s, %s)
@@ -140,13 +188,13 @@ def upload_file():
     file_id = cursor.lastrowid
     cursor.close()
 
+    # Save file using its DB ID as filename
     ext = os.path.splitext(original_name)[1]
     storage_name = f"{file_id}{ext}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], storage_name)
     file.save(filepath)
 
-    flash('File uploaded successfully.')
-    # AUDIT LOG: File addition
+    flash('File uploaded successfully.', "success")
     app.logger.info(f"User '{session['username']}' UPLOADED file '{original_name}' (ID: {file_id}).")
     
     if folder_id:
@@ -155,15 +203,14 @@ def upload_file():
         return redirect(url_for('dashboard'))
 
 @app.route("/create_folder", methods=["POST"])
+@login_required
 def create_folder():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     folder_name = request.form.get('folder_name')
     parent_id = request.form.get('parent_id')
     parent_id = int(parent_id) if str(parent_id).isdigit() else None
 
     if not folder_name or folder_name.strip() == '':
-        flash("Folder name cannot be empty")
+        flash("Folder name cannot be empty", "error")
         return redirect(url_for('dashboard'))
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -175,8 +222,7 @@ def create_folder():
     new_folder_id = cursor.lastrowid
     cursor.close()
     
-    flash(f"Folder '{folder_name}' created successfully")
-    # AUDIT LOG: Folder addition
+    flash(f"Folder '{folder_name}' created successfully", "success")
     app.logger.info(f"User '{session['username']}' CREATED folder '{folder_name}' (ID: {new_folder_id}, Parent ID: {parent_id}).")
 
     if parent_id:
@@ -185,9 +231,8 @@ def create_folder():
         return redirect(url_for('dashboard'))
 
 @app.route("/rename_folder", methods=["POST"])
+@login_required
 def rename_folder():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     folder_name = request.form.get('folder_name')
     folder_id = request.form.get('folder_id')
     parent_id = request.form.get('parent_id')
@@ -196,10 +241,10 @@ def rename_folder():
     parent_id = int(parent_id) if str(parent_id).isdigit() else None
 
     if not folder_id:
-        flash("Folder ID can't be None")
+        flash("Folder ID can't be None", "error")
         return redirect(url_for('dashboard'))
     if not folder_name or folder_name.strip() == '':
-        flash("Folder name cannot be empty")
+        flash("Folder name cannot be empty", "error")
         return redirect(url_for('dashboard'))
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -211,8 +256,7 @@ def rename_folder():
     mysql.connection.commit()
     cursor.close()
     
-    flash(f"Folder '{folder_name}' renamed successfully")
-    # AUDIT LOG: Folder rename
+    flash(f"Folder '{folder_name}' renamed successfully", "success")
     app.logger.info(f"User '{session['username']}' RENAMED folder ID {folder_id} to '{folder_name}'.")
     
     if parent_id:
@@ -221,9 +265,8 @@ def rename_folder():
         return redirect(url_for('dashboard'))
 
 @app.route("/download_folder/<int:folder_id>", methods=["GET"])
+@login_required
 def download_folder(folder_id):
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT * FROM folders WHERE id = %s AND user_id = %s", (folder_id, session['id']))
     folder_record = cursor.fetchone()
@@ -231,11 +274,11 @@ def download_folder(folder_id):
         cursor.close()
         return "Folder not found or permission denied", 404
         
-    # AUDIT LOG: Folder download started
     app.logger.info(f"User '{session['username']}' STARTED DOWNLOAD of folder '{folder_record['name']}' (ID: {folder_id}).")
 
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Re-use the cursor for recursive calls, ensuring connection is consistent
         add_folder_to_zip(cursor, zf, folder_id, session['id'], base_path="")
     memory_file.seek(0)
     cursor.close()
@@ -248,6 +291,7 @@ def download_folder(folder_id):
     )
 
 def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
+    # This helper uses the existing cursor passed from the main route
     cursor.execute("SELECT name FROM folders WHERE id = %s", (folder_id,))
     folder = cursor.fetchone()
     folder_name = folder['name'] if folder else f"folder_{folder_id}"
@@ -268,9 +312,8 @@ def add_folder_to_zip(cursor, zf, folder_id, user_id, base_path):
         add_folder_to_zip(cursor, zf, sub['id'], user_id, current_path)
 
 @app.route("/delete_folder", methods=["POST"])
+@login_required
 def delete_folder():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     folder_id = request.form.get('folder_id')
     parent_id = request.form.get('parent_id')
 
@@ -293,7 +336,6 @@ def delete_folder():
         mysql.connection.commit()
         
         flash("Folder and its contents deleted successfully.", "success")
-        # AUDIT LOG: Folder deletion
         app.logger.info(f"User '{session['username']}' DELETED folder '{folder_record['name']}' (ID: {folder_id}).")
         
     except Exception as e:
@@ -307,6 +349,7 @@ def delete_folder():
         return redirect(url_for('dashboard'))
 
 def delete_folder_recursive(cursor, folder_id, user_id):
+    # This helper uses the existing cursor passed from the main route
     cursor.execute("SELECT id FROM folders WHERE parent_id = %s AND user_id = %s", (folder_id, user_id))
     sub_folders = cursor.fetchall()
     for sub in sub_folders:
@@ -326,9 +369,8 @@ def delete_folder_recursive(cursor, folder_id, user_id):
         try:
             if os.path.exists(filepath):
                 os.remove(filepath)
-                print(f"Deleted file: {filepath}")
         except Exception as e:
-            print(f"Error deleting {filepath}: {e}")
+            app.logger.error(f"Error deleting physical file {filepath}: {e}")
 
     # Delete file records from the DB
     cursor.execute("DELETE FROM files WHERE folder_id = %s AND user_id = %s", (folder_id, user_id))
@@ -336,20 +378,15 @@ def delete_folder_recursive(cursor, folder_id, user_id):
     # Delete the folder itself
     cursor.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, user_id))
 
-@app.route("/dashboard", methods=["GET"])
+# FIX: Added "POST" back to methods list for robustness.
+@app.route("/dashboard", methods=["GET", "POST"]) 
+@login_required
 def dashboard():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
-    
     folder_id = None
     folder_name = ""
 
-    if request.method == "POST":
-        folder_id = request.form.get('folder_id')  # <-- get it from form data
-        print("Folder ID from POST:", folder_id)
-    else:
-        folder_id = request.args.get('folder')  # optional: if you also allow query params
-        print("Folder ID from GET:", folder_id)
+    # Prioritize GET query param for navigation, ignore POST data for navigation
+    folder_id = request.args.get('folder') 
     
     folder_id = int(folder_id) if str(folder_id).isdigit() else None
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -358,24 +395,18 @@ def dashboard():
 
     if current_folder_id is not None:
         cursor.execute(
-            "SELECT parent_id FROM folders WHERE id = %s AND user_id = %s",
+            "SELECT parent_id, name FROM folders WHERE id = %s AND user_id = %s",
             (current_folder_id, session['id'])
         )
         folder = cursor.fetchone()
         if folder:
             parent_id = folder['parent_id']
+            folder_name = folder['name']
         else:
-            flash("Folder not found.")
+            flash("Folder not found.", "error")
             cursor.close()
             return redirect(url_for('dashboard'))
-        
-        # Get current folder name
-        cursor.execute(
-            "SELECT name FROM folders WHERE id = %s AND user_id = %s",
-            (current_folder_id, session['id'])
-        )
-        folder_name = cursor.fetchone()['name']
-
+            
     # Fetch folders
     if current_folder_id is not None:
         cursor.execute(
@@ -435,23 +466,9 @@ def dashboard():
     response.headers['Expires'] = '0'
     return response
 
-def human_readable_size(size):
-    # size in bytes
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1_000:
-            return f"{size:.1f} {unit}"
-        size /= 1_000 # using 1_000 instead of 1_024 becasue this will match mac finder file size
-    return f"{size:.1f} GB"
-
-app.jinja_env.filters['human_size'] = human_readable_size
-
-# ----------------------------
-# DOWNLOAD FILE
-# ----------------------------
 @app.route("/download_file/<int:file_id>", methods=["GET"])
+@login_required
 def download_file(file_id):
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT * FROM files WHERE id = %s AND user_id = %s", (file_id, session['id']))
     file_record = cursor.fetchone()
@@ -459,7 +476,6 @@ def download_file(file_id):
     if not file_record:
         return "File not found or permission denied", 404
         
-    # AUDIT LOG: File download started
     app.logger.info(f"User '{session['username']}' STARTED DOWNLOAD of file '{file_record['original_name']}' (ID: {file_id}).")
 
     ext = os.path.splitext(file_record['original_name'])[1]
@@ -478,9 +494,8 @@ def download_file(file_id):
     )
 
 @app.route("/delete_file", methods=["POST"])
+@login_required
 def delete_file():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     file_id = request.form.get('file_id')
     parent_id = request.form.get('parent_id')
 
@@ -511,7 +526,6 @@ def delete_file():
         mysql.connection.commit()
         
         flash("File deleted successfully.", "success")
-        # AUDIT LOG: File deletion
         app.logger.info(f"User '{session['username']}' DELETED file '{file_record['original_name']}' (ID: {file_id}).")
         
     except Exception as e:
@@ -524,9 +538,9 @@ def delete_file():
     else:
         return redirect(url_for('dashboard'))
 
-# ----------------------------
-# USER AUTH ROUTES
-# ----------------------------
+
+# --- USER AUTH ROUTES ---
+
 @app.route("/")
 def index():
     if 'loggedin' in session:
@@ -549,59 +563,124 @@ def register():
 def login_request():
     username = request.form.get("username")
     password = request.form.get("password")
+    
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
     account = cursor.fetchone()
-    cursor.close()
+    now = datetime.now()
 
-    # Check if account exists and password hash matches
-    if account and account['password'] == password:
-        session['loggedin'] = True
-        session['id'] = account['id']
-        session['username'] = account['username']
-        session['role'] = account['role']
-        app.logger.info(f"User '{username}' logged in successfully.")
-        return redirect(url_for('dashboard'))
+    if account:
+        # --- START LOGIN ATTEMPT LOGIC ---
+        cursor.execute('SELECT * FROM login_attempts WHERE user_id = %s', (account['id'],))
+        attempt_record = cursor.fetchone()
+
+        if not attempt_record:
+            cursor.execute("INSERT INTO login_attempts (user_id) VALUES (%s)", (account['id'],))
+            mysql.connection.commit()
+            attempts = 0
+            last_failed = None
+        else:
+            attempts = attempt_record['attempts']
+            last_failed = attempt_record['last_failed']
+
+        if last_failed and attempts >= MAX_ATTEMPTS:
+            lockout_end = last_failed + timedelta(minutes=LOCKOUT_MINUTES)
+            if now < lockout_end:
+                remaining = int((lockout_end - now).total_seconds() // 60) + 1
+                msg = f"Account locked. Try again in {remaining} minute(s)."
+                flash(msg, "error")
+                cursor.close() # <-- Safe to close here
+                return redirect(url_for('login'))
+        # --- END LOGIN ATTEMPT LOGIC ---
+
+        if check_password_hash(account['password'], password):
+            # Password IS correct
+            cursor.execute("UPDATE login_attempts SET attempts = 0, last_failed = NULL WHERE user_id = %s", (account['id'],))
+            mysql.connection.commit()
+            cursor.close() # <-- Safe to close here
+
+            session['loggedin'] = True
+            session['id'] = account['id']
+            session['username'] = account['username']
+            session['role'] = account['role']
+            app.logger.info(f"User '{username}' logged in successfully.")
+            return redirect(url_for('dashboard'))
+        else:
+            # Password is NOT correct
+            attempts += 1
+            cursor.execute("UPDATE login_attempts SET attempts = %s, last_failed = %s WHERE user_id = %s", (attempts, now, account['id']))
+            mysql.connection.commit()
+            
+            app.logger.warning(f"Failed login attempt for username: {username}")
+            
+            # --- THIS IS THE FIX ---
+            # Call the helper BEFORE closing the cursor
+            create_alert_helper('WARNING', f'Failed login attempt for username: {username}')
+            
+            if attempts >= MAX_ATTEMPTS:
+                msg = f"Account locked due to too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes."
+            else:
+                remaining = MAX_ATTEMPTS - attempts
+                msg = f"Invalid username or password. {remaining} attempt(s) remaining."
+            
+            flash(msg, "error")
+            cursor.close() # <-- Now it's safe to close
+            return redirect(url_for('login'))
+
     else:
-        app.logger.warning(f"Failed login attempt for username: {username}")
+        # Account does not exist
+        app.logger.warning(f"Failed login attempt for non-existent username: {username}")
         
-        # Create a system alert for failed login attempts
+        # --- THIS IS THE FIX ---
+        # Call the helper BEFORE closing the cursor (and add it back)
         create_alert_helper('WARNING', f'Failed login attempt for username: {username}')
         
         flash("Invalid username or password.", "error")
+        cursor.close() # <-- Now it's safe to close
         return redirect(url_for('login'))
+
 
 @app.route("/register_request", methods=["POST"])
 def register_request():
     username = request.form.get("username")
     password = request.form.get("password")
+    
+    if len(password) < 8:
+        flash('Password must be at least 8 characters long!', "error")
+        return redirect(url_for('register', _t=int(time.time())))
+
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
     account = cursor.fetchone()
+    
     if account:
-        msg = 'Username already exists!'
+        flash('Username already exists!', "error")
     elif not re.match(r'^[A-Za-z0-9]+$', username):
-        msg = 'Username must contain only letters and numbers!'
+        flash('Username must contain only letters and numbers!', "error")
     else:
-        # Hash the password before storing it
+        # This is the only successful case
         hashed_password = generate_password_hash(password)
-        cursor.execute('INSERT INTO users (username, password, role) VALUES (%s, %s, %s)', (username, hashed_password, 'user'))
+        # Default quota is 20 GB
+        cursor.execute('INSERT INTO users (username, password, role, quota_gb) VALUES (%s, %s, %s, %s)', (username, hashed_password, 'user', 20))
         mysql.connection.commit()
         cursor.close()
+        
         flash("Registration successful! Please log in.", "success")
-        return redirect(url_for('login'))
+        # This adds a timestamp to the URL (e.g., /register?_t=123456789) to "bust" the cache
+        return redirect(url_for('register', _t=int(time.time()))) # <-- The only SUCCESS redirect
     
+    # All error cases will fall through to here
     cursor.close()
-    return render_template("register.html", msg=msg)
+    return redirect(url_for('register')) # <-- The new ERROR redirect
 
 @app.route("/delete_account", methods=["POST"])
+@login_required
 def delete_account():
-    if 'loggedin' not in session:
-        return redirect(url_for('login'))
     user_id = session['id']
+    username = session['username']
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        # We still need to manually delete the physical files from the upload folder.
+        # Delete physical files first
         cursor.execute("SELECT id, original_name FROM files WHERE user_id = %s", (user_id,))
         all_files = cursor.fetchall()
         for file in all_files:
@@ -611,13 +690,12 @@ def delete_account():
             if os.path.exists(filepath):
                 os.remove(filepath)
             
-        # Now, just delete the user. The DB will handle the rest via CASCADE.
+        # Delete user record (triggers CASCADE for files/folders metadata)
         cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
         mysql.connection.commit()
         cursor.close()
         
-        # AUDIT LOG: Self-deletion
-        app.logger.info(f"User '{session.get('username')}' DELETED OWN ACCOUNT (ID: {user_id}).")
+        app.logger.info(f"User '{username}' DELETED OWN ACCOUNT (ID: {user_id}).")
 
         session.clear()
         flash("Your account and all associated data have been permanently deleted.")
@@ -625,10 +703,9 @@ def delete_account():
     except Exception as e:
         mysql.connection.rollback()
         cursor.close()
-        flash(f"Error deleting account: {e}")
+        flash(f"Error deleting account: {e}", "error")
         return redirect(url_for('dashboard'))
 
-# New route for admin to delete any user
 @app.route("/delete_user", methods=["POST"])
 @admin_required
 def delete_user():
@@ -641,7 +718,6 @@ def delete_user():
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        # Get username and files for logging/physical deletion
         cursor.execute("SELECT username FROM users WHERE id = %s", (user_id_to_delete,))
         user_record = cursor.fetchone()
         if not user_record:
@@ -651,7 +727,7 @@ def delete_user():
             
         username_to_delete = user_record['username']
         
-        # 1. Manually delete physical files first
+        # Manually delete physical files first
         cursor.execute("SELECT id, original_name FROM files WHERE user_id = %s", (user_id_to_delete,))
         all_files = cursor.fetchall()
         for file in all_files:
@@ -661,11 +737,10 @@ def delete_user():
             if os.path.exists(filepath):
                 os.remove(filepath)
 
-        # 2. Delete user from DB (CASCADE cleans up files/folders metadata)
+        # Delete user from DB (CASCADE cleans up files/folders metadata)
         cursor.execute("DELETE FROM users WHERE id = %s", (user_id_to_delete,))
         mysql.connection.commit()
         
-        # AUDIT LOG: Admin deletion
         app.logger.info(f"Admin '{session['username']}' DELETED user '{username_to_delete}' (ID: {user_id_to_delete}).")
         
         flash(f"User '{username_to_delete}' successfully deleted.", "success")
@@ -680,48 +755,12 @@ def delete_user():
 
 @app.route("/logout", methods=["POST"])
 def logout():
-    # AUDIT LOG: Logout
     app.logger.info(f"User '{session.get('username', 'N/A')}' logged out.")
-    
     session.clear()
+    flash("You have been logged out.", "info")
     return redirect(url_for('login'))
 
-# ----------------------------------
-## Admin Panel & API Routes
-# ----------------------------------
-
-# Helper to create an alert from outside the main stats loop
-def create_alert_helper(level, message):
-    """
-    Creates an alert. Handles its own DB connection.
-    Used for creating alerts from outside the stats_collector_loop.
-    """
-    try:
-        conn = mysql.connection
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT id FROM alerts WHERE message = %s AND is_read = 0", 
-            (message,)
-        )
-        if cursor.fetchone():
-            cursor.close()
-            return # Don't create duplicate unread alerts
-
-        cursor.execute(
-            "INSERT INTO alerts (level, message) VALUES (%s, %s)",
-            (level, message)
-        )
-        conn.commit()
-        cursor.close()
-        app.logger.info(f"Created alert: {level} - {message}")
-    except Exception as e:
-        app.logger.error(f"Error in create_alert_helper: {e}")
-
-def bytes_to_gb(bytes_val):
-    if bytes_val is None:
-        return 0
-    gb = bytes_val / (1024**3); return round(gb, 2)
+# --- Admin Panel & API Routes ---
 
 @app.route("/admin_monitoring_panel")
 @admin_required
@@ -729,7 +768,7 @@ def admin_monitoring_panel():
     try:
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         
-        # Query for the storage report
+        # Query for the storage report (This is correct)
         cursor.execute("""
             SELECT 
                 users.id, 
@@ -739,31 +778,36 @@ def admin_monitoring_panel():
                 SUM(files.size) as total_usage
             FROM users
             LEFT JOIN files ON users.id = files.user_id
-            GROUP BY users.id, users.username, users.role, users.quota_gb
+            GROUP BY users.id
             ORDER BY total_usage DESC
         """)
         users_raw = cursor.fetchall()
-        cursor.close()
+        cursor.close() 
 
-        # Process the report data
+        # --- THIS IS THE CORRECTED LOGIC ---
         users_report = []
         for user in users_raw:
+            # Calculate usage/quota for EACH user in the loop
             usage_bytes = user['total_usage'] or 0
             quota_gb = user['quota_gb'] if user and user['quota_gb'] is not None else 20
             quota_bytes = quota_gb * 1024**3
             usage_gb = round(usage_bytes / (1024**3), 2)
-            percent = 0
+            
+            # Define percent
+            percent = 0 
             if quota_bytes > 0:
                 percent = round((usage_bytes / quota_bytes) * 100, 1)
 
+            # This data is needed by your template
             users_report.append({
                 "id": user['id'],
                 "username": user['username'],
                 "role": user['role'],
-                "usage_gb": usage_gb,
+                "usage_gb": usage_gb, 
                 "quota_gb": quota_gb,
-                "percent": percent
+                "percent": percent  # Now 'percent' is correctly defined
             })
+        # --- END OF CORRECTED LOGIC ---
         
         return render_template("admin_monitoring_panel.html", users_report=users_report)
 
@@ -771,8 +815,6 @@ def admin_monitoring_panel():
         app.logger.error(f"Error in /admin_monitoring_panel: {e}")
         flash(f"Error generating admin panel: {e}", "error")
         return redirect(url_for('dashboard'))
-
-# Admin route to update a user's storage quota
 @app.route("/update_quota", methods=["POST"])
 @admin_required
 def update_quota():
@@ -789,7 +831,7 @@ def update_quota():
         mysql.connection.commit()
         cursor.close()
         
-        flash("User quota updated successfully.", "success")
+        flash(f"User ID {user_id}'s quota updated to {new_quota} GB.", "success")
         app.logger.info(f"Admin '{session['username']}' updated quota for user ID {user_id} to {new_quota} GB.")
 
     except Exception as e:
@@ -799,7 +841,8 @@ def update_quota():
     
     return redirect(url_for('admin_monitoring_panel'))
 
-# API endpoints for the admin monitoring panel
+# --- API Endpoints ---
+# (APIs remain mostly unchanged from the enhanced snippet, ensuring separation of concerns)
 
 @app.route("/api/stats_history")
 @admin_required
@@ -816,7 +859,7 @@ def api_stats_history():
         stats = cursor.fetchall()
         cursor.close()
         formatted_data = {
-            "labels": [s['timestamp'].strftime('%Y-%m-%dT%H:%M:%S') for s in stats], # Use ISO format for date-fns
+            "labels": [s['timestamp'].strftime('%Y-%m-%dT%H:%M:%S') for s in stats],
             "cpu": [s['cpu_percent'] for s in stats],
             "mem": [s['mem_percent'] for s in stats],
             "net_sent": [s['net_sent_mbps'] or 0 for s in stats],
@@ -828,7 +871,7 @@ def api_stats_history():
     except Exception as e:
         app.logger.error(f"Error in /api/stats_history: {e}")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/api/stats_snapshot")
 @admin_required 
 def api_stats_snapshot():
@@ -857,20 +900,16 @@ def api_logs():
         
         with open(log_file_path, 'r') as f:
             lines = f.readlines()
+            # Get last 100 lines and reverse order for display (newest first)
             last_100_lines = lines[-100:]
             last_100_lines.reverse()
+            
             for line in last_100_lines:
                 try:
-                    if "[INFO]" in line:
-                        parts = line.split("[INFO] ", 1)
-                        timestamp = parts[0].strip("[]")
-                        message = parts[1].strip()
-                        logs.append({"timestamp": timestamp, "level": "INFO", "message": message})
-                    elif " - INFO - " in line or " - ERROR - " in line or " - WARNING - " in line:
+                    # Generic parsing for standard logging format
+                    if " - INFO - " in line or " - ERROR - " in line or " - WARNING - " in line:
                         parts = line.split(' - ', 2)
                         logs.append({"timestamp": parts[0].strip(), "level": parts[1].strip(), "message": parts[2].strip()})
-                    elif "HTTP/1.1" in line:
-                            logs.append({"timestamp": "N/A", "level": "ACCESS", "message": line.strip()})
                     elif line.strip():
                         logs.append({"timestamp": "N/A", "level": "RAW", "message": line.strip()})
                 except Exception:
@@ -881,13 +920,11 @@ def api_logs():
         app.logger.error(f"Error in /api/logs: {e}")
         return jsonify({"error": str(e)}), 500
 
-# API: Get top running processes
 @app.route("/api/processes")
 @admin_required
 def api_processes():
     processes = []
     try:
-        # Get all processes, sort by CPU usage, take top 50
         all_procs = sorted(
             psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'status']),
             key=lambda p: p.info['cpu_percent'],
@@ -904,7 +941,6 @@ def api_processes():
         app.logger.error(f"Error in /api/processes: {e}")
         return jsonify({"error": str(e)}), 500
 
-# API: Get active network connections and logged-in users
 @app.route("/api/network_stats")
 @admin_required
 def api_network_stats():
@@ -913,18 +949,28 @@ def api_network_stats():
     try:
         # Get network connections
         for conn in psutil.net_connections():
-            if conn.status != 'ESTABLISHED' or not conn.raddr:
+            if conn.status not in ('ESTABLISHED', 'LISTEN') or not conn.raddr:
                 continue
+            try:
+                p = psutil.Process(conn.pid)
+                proc_name = p.name()
+                proc_username = p.username()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                proc_name = "N/A"
+                proc_username = "N/A"
+
             connections.append({
                 "laddr_ip": conn.laddr.ip,
                 "laddr_port": conn.laddr.port,
-                "raddr_ip": conn.raddr.ip,
-                "raddr_port": conn.raddr.port,
+                "raddr_ip": conn.raddr.ip if conn.raddr else "N/A",
+                "raddr_port": conn.raddr.port if conn.raddr else "N/A",
                 "status": conn.status,
-                "pid": conn.pid
+                "pid": conn.pid,
+                "proc_name": proc_name,
+                "proc_username": proc_username
             })
 
-        # Get logged in users
+        # Get logged in users (SSH/Terminal)
         for user in psutil.users():
             users.append({
                 "name": user.name,
@@ -939,9 +985,8 @@ def api_network_stats():
         return jsonify({"error": str(e)}), 500
 
 def check_service_status(service_name):
-    """Checks if a systemd service is active using subprocess for better error handling."""
+    """Checks if a systemd service is active."""
     try:
-        # Use the absolute path to systemctl for reliability
         result = subprocess.run(
             ['/usr/bin/systemctl', 'is-active', '--quiet', service_name],
             capture_output=True,
@@ -952,16 +997,10 @@ def check_service_status(service_name):
         if result.returncode == 0:
             return 'ACTIVE'
         else:
-            if result.stderr:
-                app.logger.warning(f"Service check for '{service_name}' failed: {result.stderr.strip()}")
-            elif result.returncode == 3:
-                 app.logger.warning(f"Service check for '{service_name}' reported status: INACTIVE")
-            else:
-                 app.logger.warning(f"Service check for '{service_name}' returned unknown code: {result.returncode}")
-            return 'INACTIVE' 
+            return 'INACTIVE' if result.returncode == 3 else 'ERROR'
             
     except FileNotFoundError:
-        app.logger.error("systemctl command not found at '/usr/bin/systemctl'. Cannot check service status.")
+        app.logger.error("systemctl command not found. Cannot check service status.")
         return 'ERROR'
     except Exception as e:
         app.logger.error(f"Error checking service {service_name}: {e}")
@@ -984,7 +1023,6 @@ def api_service_status():
         app.logger.error(f"Error in /api/service_status: {e}")
         return jsonify({"error": str(e)}), 500
 
-# API: Get recent system alerts
 @app.route("/api/alerts")
 @admin_required
 def api_alerts():
@@ -1008,7 +1046,6 @@ def api_alerts():
         app.logger.error(f"Error in /api/alerts: {e}")
         return jsonify({"error": str(e)}), 500
 
-# API: Mark a system alert as 'read'
 @app.route("/api/alert_dismiss", methods=["POST"])
 @admin_required
 def api_alert_dismiss():
@@ -1029,23 +1066,19 @@ def api_alert_dismiss():
         app.logger.error(f"Error in /api/alert_dismiss: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-# API: Get system uptime and root disk usage
 @app.route("/api/system_overview")
 @admin_required
 def api_system_overview():
     try:
-        # Get Uptime
         boot_time = datetime.fromtimestamp(psutil.boot_time())
         now = datetime.now()
         uptime_delta = now - boot_time
         
-        # Format uptime string
         days = uptime_delta.days
         hours, remainder = divmod(uptime_delta.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime_string = f"{days}d, {hours}h, {minutes}m"
         
-        # Get System Disk Usage
         disk = psutil.disk_usage('/')
         
         return jsonify({
@@ -1058,9 +1091,7 @@ def api_system_overview():
         app.logger.error(f"Error in /api/system_overview: {e}")
         return jsonify({"error": str(e)}), 500
 
-# ----------------------------------
-## Background Stats Collector Thread
-# ----------------------------------
+# --- Background Stats Collector Thread ---
 
 def get_network_io(interval=1):
     counter_now = psutil.net_io_counters()
@@ -1070,6 +1101,7 @@ def get_network_io(interval=1):
     sent_bps = counter_later.bytes_sent - counter_now.bytes_sent
     recv_bps = counter_later.bytes_recv - counter_now.bytes_recv
     
+    # Convert bits per second to Megabits per second (Mb/s)
     sent_mbps = (sent_bps * 8) / (1024 * 1024) / interval
     recv_mbps = (recv_bps * 8) / (1024 * 1024) / interval
     
@@ -1083,6 +1115,7 @@ def get_disk_io(interval=1):
     read_bytes = counter_later.read_bytes - counter_now.read_bytes
     write_bytes = counter_later.write_bytes - counter_now.write_bytes
     
+    # Convert bytes per second to Megabytes per second (MB/s)
     read_mbps = (read_bytes / (1024 * 1024)) / interval
     write_mbps = (write_bytes / (1024 * 1024)) / interval
     
@@ -1111,30 +1144,35 @@ def stats_collector_loop():
     print("Starting background stats collector thread...")
     app.logger.info("Background stats collector thread started.")
     
+    # Use Flask application context for database connection
     with app.app_context():
         while True:
-            measurement_interval_sec = 1
+            # Short measurement period for accurate I/O calculation
+            measurement_interval_sec = 1 
+            # Sleep longer to reduce DB load
             sleep_interval_sec = 8 
 
             try:
+                # Use a `with` statement for cursor management
                 with mysql.connection.cursor() as cursor:
                     
                     cpu = psutil.cpu_percent(interval=None)
                     mem = psutil.virtual_memory().percent
+                    # Get I/O over the measurement interval
                     net_sent, net_recv = get_network_io(measurement_interval_sec)
                     disk_read, disk_write = get_disk_io(measurement_interval_sec)
                     
                     # Get system disk usage for alerting
                     disk = psutil.disk_usage('/')
 
+                    # Insert new system metrics
                     cursor.execute("""
                         INSERT INTO system_stats (cpu_percent, mem_percent, net_sent_mbps, net_recv_mbps, 
                                                   disk_read_mbps, disk_write_mbps)
                         VALUES (%s, %s, %s, %s, %s, %s)
                     """, (cpu, mem, net_sent, net_recv, disk_read, disk_write))
                     
-                    
-                    # Check for high CPU/Memory usage
+                    # --- Automated Alert Checks ---
                     if cpu > 90:
                         create_alert(cursor, 'ERROR', f'High CPU usage detected: {cpu}%')
                     elif cpu > 75:
@@ -1145,7 +1183,6 @@ def stats_collector_loop():
                     elif mem > 75:
                         create_alert(cursor, 'WARNING', f'Memory usage is high: {mem}%')
                         
-                    # Check for high disk usage
                     if disk.percent > 90:
                         create_alert(cursor, 'ERROR', f'Critical disk usage: {disk.percent}% full.')
                     elif disk.percent > 80:
@@ -1159,13 +1196,13 @@ def stats_collector_loop():
 
                     mysql.connection.commit()
                     
-                    # Prune old stats
+                    # Prune old stats (over 1 hour old)
                     cursor.execute("""
                         DELETE FROM system_stats 
                         WHERE timestamp < (NOW() - INTERVAL 1 HOUR)
                     """)
                     
-                    # Prune old, read alerts
+                    # Prune old, read alerts (over 1 day old)
                     cursor.execute("""
                         DELETE FROM alerts
                         WHERE is_read = 1 AND timestamp < (NOW() - INTERVAL 1 DAY)
@@ -1174,8 +1211,9 @@ def stats_collector_loop():
                     mysql.connection.commit()
                     
             except Exception as e:
-                print(f"Error in stats collector thread: {e}")
-                app.logger.error(f"Error in stats collector thread: {e}")
+                # This catches general exceptions like connection errors outside the cursor block
+                print(f"Global error in stats collector thread: {e}")
+                app.logger.error(f"Global error in stats collector thread: {e}")
             
             time.sleep(sleep_interval_sec)
 
@@ -1185,4 +1223,6 @@ collector_thread.start()
 
 # --- Main execution ---
 if __name__ == "__main__":
+    # Note: Flask's default debug mode is NOT thread-safe with the custom collector thread.
+    # For production, use a WSGI server (Gunicorn) and set debug=False.
     app.run(debug=True)

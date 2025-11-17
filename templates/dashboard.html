@@ -10,6 +10,21 @@
 
 <body>
     <header class="dashboard_header">
+         <div class="storage-widget">
+            <h4>Your Storage Usage</h4>
+            <progress id="storage-bar" value="{{ usage_percent }}" max="100"></progress>
+            <label for="storage-bar">
+                <b>{{ usage_percent }}% Full</b>
+                ({{ current_usage_gb }} GB of {{ user_quota_gb }} GB)
+            </label>
+        </div>
+
+
+        <div>
+            <h1>Welcome, {{ username }}!</h1>
+        </div>
+        
+        {% if role != 'admin' %}
         <div>
             <button class="button-delete-account"
                 onclick="document.getElementById('deleteAccountDialog').showModal()">Delete
@@ -18,21 +33,19 @@
                 <form method="POST" action="{{ url_for('delete_account') }}">
                     <h3>Are you sure you want to delete your account?</h3>
                     <p>This will delete all of your files and can't be undone!</p>
-                    <button class="button-dashboard" type="submit">Yes, I want to delete my account.</button>
+                    <button type="submit">Yes, I want to delete my account.</button>
                     <button class="button-dashboard" type="button"
                         onclick="this.closest('dialog').close()">Cancel</button>
                 </form>
             </dialog>
         </div>
+        {% endif %}
 
-        <div>
-            <h1>Welcome, {{ username }}!</h1>
-        </div>
+        
     </header>
 
     <div class="simple_container">
-        <button class="button-dashboard" onclick="document.getElementById('createFolderDialog').showModal()">Create
-            Folder</button>
+
         <dialog class="dialog-create-folder" id="createFolderDialog">
             <form method="POST" action="{{ url_for('create_folder') }}">
                 <input type="text" name="folder_name" placeholder="Create Folder Name" required>
@@ -41,6 +54,9 @@
                 <button class="button-dashboard" type="button" onclick="this.closest('dialog').close()">Cancel</button>
             </form>
         </dialog>
+
+        <button class="button-dashboard" onclick="document.getElementById('createFolderDialog').showModal()">Create
+            Folder</button>
 
         <form method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data">
             <input type="hidden" name="folder_id" value="{{ current_folder_id }}">
@@ -54,10 +70,11 @@
         </form>
         
         {% if role == 'admin' %}
-          <a href="{{ url_for('admin_monitoring_panel') }}">
+        <a href="{{ url_for('admin_monitoring_panel') }}">
             <button class="button-dashboard" type="button">Monitoring</button>
-          </a>
+        </a>
         {% endif %}
+
     </div>
 
     <div class="user-files-container">

@@ -77,6 +77,19 @@ You must create the database and initialize the tables before running the applic
       `is_read` tinyint(1) DEFAULT '0',
       PRIMARY KEY (`id`)
     );
+
+    CREATE TABLE IF NOT EXISTS login_attempts (
+        user_id INT NOT NULL,
+        attempts INT DEFAULT 0,
+        last_failed TIMESTAMP NULL DEFAULT NULL,
+        PRIMARY KEY (user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_gb INT DEFAULT 20;
+
+    INSERT INTO users (username, password, role)
+    VALUES ('admin', 'pbkdf2:sha256:260000$EXLF0dhv2EdIsrj0$9a7c478f6bd3e59546ac23af925950050672cfc024bb0f986546d6c0412fefed', 'admin');
     ```
 
 ---
