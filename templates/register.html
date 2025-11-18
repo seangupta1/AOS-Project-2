@@ -10,20 +10,28 @@
 
 <body>
   <div class="general_container">
-    <h2>Register New User</h2>
+    <h2>Register</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
     <form class="login_register" action="{{ url_for('register_request') }}" method="POST">
       <label>Username:</label><br>
       <input type="text" name="username" required><br><br>
 
       <label>Password:</label><br>
-      <input type="password" name="password" required><br><br>
+      <input type="password" name="password" required><br>
+      <small style="font-size: 0.8em;">(Must be at least 8 characters long)</small><br><br>
 
       <input class="button-yellow" type="submit" value="Register">
     </form>
 
-    {% if msg %}
-    <p style="color:red;">{{ msg }}</p>
-    {% endif %}
+    <a class="button-yellow" href="{{ url_for('login') }}">Back to Login</a>
   </div>
 </body>
 

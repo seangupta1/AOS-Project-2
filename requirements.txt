@@ -1,0 +1,6 @@
+flask
+flask-mysqldb
+psutil
+werkzeug
+gunicorn
+apscheduler

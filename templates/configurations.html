@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Configurations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <header class="dashboard_header">
+        <div>
+            <a href="{{ url_for('dashboard') }}" class="button-dashboard"
+                style="position: absolute; left: 5px; top: 5px;">⬅ Back to Dashboard</a>
+        </div>
+        <div>
+            <h1>Admin Configurations</h1>
+        </div>
+    </header>
+
+    <div class="config-container" style="padding: 20px;">
+        <table class="table-configurations">
+            <thead>
+                <tr>
+                    <th style="width: 70%;">Configuration</th>
+                    <th style="width: 30%;">Enabled</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Enable Email Notifications</td>
+                    <td><input type="checkbox" class="config-toggle" data-config="email_notifications"></td>
+                </tr>
+                <tr>
+                    <td>Enable Auto Backup</td>
+                    <td><input type="checkbox" class="config-toggle" data-config="auto_backup"></td>
+                </tr>
+                <tr>
+                    <td>Enable Dark Mode</td>
+                    <td><input type="checkbox" class="config-toggle" data-config="dark_mode"></td>
+                </tr>
+            </tbody>
+        </table>
+        <div style="margin-top: 20px;">
+            <button id="save-configs" class="button-save">Save Configurations</button>
+        </div>
+    </div>
+
+    <script>
+        // Fetch current config values from backend
+        function loadConfigs() {
+            fetch("{{ url_for('backup.get_backup_configs') }}")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) return console.error(data.error);
+                    document.querySelectorAll('.config-toggle').forEach(cb => {
+                        const configName = cb.dataset.config;
+                        cb.checked = data.configs[configName] || false;
+                    });
+                })
+                .catch(err => console.error('Error loading configs:', err));
+        }
+
+        // Save config values to backend
+        function saveConfigs() {
+            const configs = {};
+            document.querySelectorAll('.config-toggle').forEach(cb => {
+                configs[cb.dataset.config] = cb.checked;
+            });
+
+            fetch("{{ url_for('backup.update_backup_configs') }}", {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(configs)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) alert("Configurations saved!");
+                    else alert("Error saving configurations.");
+                })
+                .catch(err => console.error('Error saving configs:', err));
+        }
+
+        document.getElementById('save-configs').addEventListener('click', saveConfigs);
+
+        // Load configs on page load
+        loadConfigs();
+    </script>
+</body>
+
+</html>

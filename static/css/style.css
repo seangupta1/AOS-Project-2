@@ -1,11 +1,16 @@
 /* UMKC Theme CSS */
 :root {
-          --primary-color: #005BBB;     /* UMKC Blue */
-          --primary-color-darker: #003b7a;
-          --primary-color-lighter: #026ee2; 
-          --secondary-color: #FFD100;   /* UMKC Gold */
-          --secondary-color-darker: #dbb301;
-        }
+    --primary-color: #005BBB;         /* UMKC Blue */
+    --primary-color-darker: #003b7a;
+    --primary-color-lighter: #026ee2;  
+    --secondary-color: #FFD100;       /* UMKC Gold */
+    --secondary-color-darker: #dbb301;
+    
+    /* Status Colors for consistency */
+    --color-success: #198754;
+    --color-error: #dc3545;
+    --color-warning: #ffc107;
+}
 
 body {
     background-color: var(--primary-color);
@@ -15,6 +20,8 @@ body {
     margin: 0;
     padding: 0;
 }
+
+/* --- General Buttons --- */
 
 .button-yellow {
     background-color: var(--secondary-color);
@@ -48,6 +55,7 @@ body {
     background-color: var(--secondary-color-darker)
 }
 
+/* Replace the old .button-delete-account with this */
 .button-delete-account{
     background-color: var(--secondary-color);
     border: none;
@@ -58,15 +66,16 @@ body {
     font-weight: bold;
     margin: 5px 10px;
     padding: 10px 20px;
-    position: absolute;
-    right: 5px;
     text-decoration: none;
-    top: 5px;
     transition: background-color 0.2s ease;
+    /* Removed position: absolute, top, and right */
 }
 .button-delete-account:hover {
     background-color: var(--secondary-color-darker)
 }
+
+
+/* --- Container Styles --- */
 
 .general_container {
     align-self: center;
@@ -86,10 +95,10 @@ body {
     box-shadow: 0 4px 6px black;
     display: flex;
     flex-direction: row;
-    margin: 10px auto;
+    margin: 10px auto; /* Reverts to auto-centering */
     padding: 10px;
     text-align: center;
-    width: fit-content;
+    width: fit-content; /* This is the key change */
 }
 
 .user-files-container {
@@ -99,22 +108,105 @@ body {
     box-shadow: 0 4px 6px black;
     display: flex;
     flex-direction: column;
-    margin: 10px 50px;
+    margin: 10px auto; /* Center the container */
     padding-top: 5px;
     text-align: left;
-    width: calc(100% - 100px);
+    width: fit-content; /* Size to content */
+    max-width: calc(100% - 40px); /* Add max-width to prevent overflow */
 }
 
+/* ...And replace it with this new block */
 .dashboard_header {
     align-self: center;
     background-color: var(--primary-color-darker);
     border: 3px solid var(--secondary-color);
     box-sizing: border-box;
-    height: fit-content;
-    position: relative;
-    text-align: center;
     width: 100%;
+    
+    /* Flexbox layout */
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between; /* Pushes left/right items to edges */
+    align-items: center;
+    padding: 10px 20px;
+
+    position: relative; /* CRITICAL: For absolute centering */
 }
+
+/* This targets the three divs inside the header */
+.dashboard_header > div:first-child {
+    /* Left item (widget div) */
+    text-align: left;
+    /* We set its width to match the widget inside it */
+    width: 374px; /* 350px widget + 12px padding-left + 12px padding-right */
+}
+.dashboard_header > div:nth-child(2) {
+    /* Middle item (welcome div) */
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    /* This removes it from the flex flow, so it's TRULY centered */
+}
+.dashboard_header > div:last-child {
+    /* Right item (button div or empty div) */
+    text-align: right; 
+    /* We give it the same width as the left item for perfect balance */
+    width: 374px;
+}
+
+
+.storage-widget {
+    background-color: var(--primary-color);
+    border: 1px solid var(--secondary-color);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: left;
+    width: 350px; /* Keep its fixed width */
+    box-shadow: none; /* Remove shadow */
+}
+
+.storage-widget h4 {
+    margin: 0 0 8px 0;
+    color: var(--secondary-color); /* UMKC Gold text */
+    font-size: 1.1em;
+}
+.storage-widget progress {
+    width: 100%;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    /* The "track" of the bar */
+    background-color: var(--primary-color-darker); 
+}
+
+/* --- Style the progress bar value (UMKC Gold) --- */
+
+/* For WebKit browsers (Chrome, Safari) */
+.storage-widget progress::-webkit-progress-bar {
+    background-color: var(--primary-color-darker);
+    border-radius: 4px;
+}
+.storage-widget progress::-webkit-progress-value {
+    background-color: var(--secondary-color); /* UMKC Gold */
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+/* For Firefox */
+.storage-widget progress::-moz-progress-bar {
+    background-color: var(--secondary-color); /* UMKC Gold */
+    border-radius: 4px;
+}
+
+.storage-widget label {
+    font-size: 0.95em;
+    color: var(--secondary-color); /* UMKC Gold text */
+    margin-top: 8px;
+    display: block;
+    text-align: center;
+}
+
+/* --- Login/Register Form Styles --- */
 
 .login_register {
     margin-bottom: 40px;
@@ -154,6 +246,8 @@ body {
     background-color: var(--secondary-color-darker)
 }
 
+/* --- File/Folder Table Styles --- */
+
 .table-user-files {
     border-collapse: collapse;
     font-family: Arial, sans-serif;
@@ -163,7 +257,7 @@ body {
 }
 .table-user-files th {
     background-color: var(--primary-color-lighter);
-    color: var(--primary-color-contrast, var(--secondary-color));
+    color: var(--secondary-color);
     padding: 12px 15px;
     font-weight: bold;
     border: 2px solid var(--secondary-color);
@@ -180,12 +274,32 @@ body {
     text-decoration: none;
     font-weight: bold;
 }
+.table-user-files td:last-child {
+    text-align: right; /* Align action buttons/forms to the right */
+    white-space: nowrap;
+}
+.table-user-files form {
+    display: inline;
+}
 
-.dialog-create-folder {
+.table-user-files tbody tr.log-warning td {
+    background-color: #6e4d00; /* A dark gold/orange */
+    font-weight: bold;
+    color: var(--secondary-color); /* UMKC Gold */
+}
+.table-user-files tbody tr.log-error td {
+    background-color: #5c0000; /* A dark red */
+    font-weight: bold;
+    color: #ffaaaa;
+}
+/* --- Dialog Styles (Modals) --- */
+
+.dialog-create-folder, .dialog-delete-account {
     background-color: var(--primary-color-darker);
     border-radius: 20px;
     color: var(--secondary-color);
     padding: 25px 50px;
+    border: none;
 }
 .dialog-create-folder input {
     background-color: var(--primary-color);
@@ -198,56 +312,35 @@ body {
     outline: none;
 }
 .dialog-create-folder input[type="submit"] {
-    background-color: var(--secondary-color);
-    border: none;
-    border-radius: 10px;
-    color: var(--primary-color);
-    cursor: pointer;
+    /* Use button-dashboard style for consistency */
     display: block;
-    font-size: 20px;
-    font-weight: bold;
-    padding: 10px 20px;
-    text-align: center;
-    text-decoration: none;
-    transition: background-color 0.2s ease;
     width: 100%;
+    margin-top: 15px;
 }
-.dialog-create-folder input[type="submit"]:hover {
-    background-color: var(--secondary-color-darker)
-}
-.dialog-create-folder::backdrop {
-  backdrop-filter: blur(5px);
-  background: rgba(0,0,0,0.2);
+.dialog-create-folder::backdrop, .dialog-delete-account::backdrop {
+    backdrop-filter: blur(5px);
+    background: rgba(0,0,0,0.2);
 }
 
-.dialog-delete-account {
-    background-color: var(--primary-color-darker);
-    border-radius: 20px;
-    color: var(--secondary-color);
-    padding: 25px 50px;
-}
-.dialog-delete-account input[type="submit"] {
-    background-color: var(--secondary-color);
+.dialog-delete-account button[type="submit"] {
+    /* Special button style for confirmation */
+    background-color: var(--color-error);
     border: none;
     border-radius: 10px;
-    color: var(--primary-color);
+    color: white;
     cursor: pointer;
     display: block;
     font-size: 20px;
     font-weight: bold;
     padding: 10px 20px;
-    text-align: right;
-    text-decoration: none;
-    transition: background-color 0.2s ease;
+    margin-top: 15px;
     width: 100%;
 }
-.dialog-delete-account input[type="submit"]:hover {
-    background-color: var(--secondary-color-darker)
+.dialog-delete-account button[type="submit"]:hover {
+    background-color: #a0212e;
 }
-.dialog-delete-account::backdrop {
-  backdrop-filter: blur(5px);
-  background: rgba(0,0,0,0.2);
-}
+
+/* --- Dashboard Navigation/Layout --- */
 
 .div-user-files-nav {
     display: flex;
@@ -258,3 +351,149 @@ body {
 .folder_name {
     margin-left: 20px;
 }
+
+/* --- FLASH MESSAGES (CRITICAL UX FIX) --- */
+
+.flash-message {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    padding: 15px 10px;
+    text-align: center;
+    font-weight: bold;
+    z-index: 1000;
+    margin-bottom: 20px;
+}
+.flash-message.error {
+    background-color: var(--color-error); /* Red */
+    color: white;
+}
+.flash-message.success {
+    background-color: var(--color-success); /* Green */
+    color: white;
+}
+.flash-message.info, .flash-message.warning {
+    background-color: var(--secondary-color);
+    color: var(--primary-color); /* UMKC Blue */
+}
+
+/* ============================================== */
+/* === ADMIN PANEL STYLES === */
+/* ============================================== */
+
+/* Layout Grids */
+.admin-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin: 20px 50px;
+}
+.admin-chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin: 20px 50px;
+}
+
+/* General Box Styles */
+.admin-box {
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    padding: 20px;
+    position: relative; 
+    height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+.admin-box h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary-color-lighter);
+    flex-shrink: 0;
+}
+
+.admin-box canvas {
+    flex-grow: 1;   /* Tells the canvas to fill the remaining space */
+    min-height: 0;    /* CRITICAL: Allows the canvas to shrink */
+    position: relative; /* Helps Chart.js with responsiveness */
+}
+.admin-box-full {
+    grid-column: 1 / -1; /* Span full width */
+    height: auto;
+    max-height: 500px;
+    overflow-y: hidden; /* Main container controls scroll */
+}
+
+/* Tables and Scrolling */
+.admin-full-width-container {
+    background-color: var(--primary-color-darker);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px black;
+    padding: 20px;
+    margin: 20px 50px;
+}
+.admin-scroll-box {
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    min-width: 700px; /* Ensure wide tables don't compress too much */
+}
+.admin-table th, .admin-table td {
+    border: 1px solid var(--secondary-color);
+    padding: 8px;
+    text-align: left;
+}
+.admin-table th {
+    background-color: var(--primary-color-lighter);
+}
+
+/* Status Indicators */
+.status-ACTIVE { color: var(--color-success); font-weight: bold; }
+.status-INACTIVE { color: var(--color-error); font-weight: bold; }
+.status-ERROR { color: var(--color-warning); font-weight: bold; }
+
+.alert-row.is-read {
+    color: #888;
+    opacity: 0.5;
+}
+.alert-level-ERROR { color: var(--color-error); font-weight: bold; }
+.alert-level-WARNING { color: var(--color-warning); font-weight: bold; }
+
+.btn-dismiss {
+    background-color: var(--secondary-color);
+    border: none;
+    border-radius: 5px;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 5px 10px;
+}
+.btn-dismiss:hover { background-color: var(--secondary-color-darker); }
+.btn-dismiss:disabled { background-color: #6c757d; color: #ccc; cursor: not-allowed; }
+
+/* Quota Bar */
+.quota-bar-bg { 
+    background-color: #eee; 
+    border-radius: 5px; 
+    padding: 3px; 
+    border: 1px solid var(--secondary-color); 
+}
+.quota-bar-fg { 
+    background-color: #0d6efd; 
+    border-radius: 3px; 
+    color: white; 
+    text-align: right; 
+    padding: 2px 5px; 
+    min-height: 20px; 
+    line-height: 20px; 
+    white-space: nowrap; 
+    max-width: 100%; 
+    transition: width 0.5s ease-in-out, background-color 0.5s ease;
+}
+.quota-bar-fg.warning { background-color: var(--color-warning); }
+.quota-bar-fg.error { background-color: var(--color-error); }

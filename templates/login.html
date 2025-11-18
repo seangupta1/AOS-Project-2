@@ -11,6 +11,15 @@
 <body>
   <div class="general_container">
     <h2>Login</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash-message {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
     <form class="login_register" action="{{ url_for('login_request') }}" method="POST">
       <label>Username:</label><br>
       <input type="text" name="username" required><br><br>
@@ -20,10 +29,6 @@
 
       <input class="button-yellow" type="submit" value="Login">
     </form>
-
-    {% if msg %}
-    <p style="color:red;">{{ msg }}</p>
-    {% endif %}
 
     <a class="button-yellow" href="{{ url_for('register') }}">Register New User</a>
   </div>
