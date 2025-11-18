@@ -17,14 +17,18 @@ import io
 import zipfile
 import json
 import subprocess
+from utils import admin_required
+from backup_manager import BackupManager
+from routes_backup import backup_bp
 
 # --- Application Setup and Configuration ---
 app = Flask(__name__)
+app.register_blueprint(backup_bp)
 # WARNING: In a real app, secret_key must be a strong, random value
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-dev-secret-password-should-be-stronger')
 
 # Application-wide logging configuration
-log_file = '/tmp/nas_app.log'
+log_file = 'nas_app.log'
 logging.basicConfig(
     filename=log_file,
     level=logging.INFO,
@@ -68,16 +72,6 @@ def login_required(f):
         if 'loggedin' not in session:
             flash("Please log in to access this page.", "warning")
             return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    """Protects routes that require admin privileges."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'loggedin' not in session or session.get('role') != 'admin':
-            flash("You do not have permission to access this page.", "error")
-            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -1090,6 +1084,7 @@ def api_system_overview():
     except Exception as e:
         app.logger.error(f"Error in /api/system_overview: {e}")
         return jsonify({"error": str(e)}), 500
+        
 
 # --- Background Stats Collector Thread ---
 

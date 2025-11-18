@@ -403,11 +403,20 @@ body {
     padding: 20px;
     position: relative; 
     height: 400px;
+    display: flex;
+    flex-direction: column;
 }
 .admin-box h2 {
     margin-top: 0;
     padding-bottom: 10px;
     border-bottom: 2px solid var(--primary-color-lighter);
+    flex-shrink: 0;
+}
+
+.admin-box canvas {
+    flex-grow: 1;   /* Tells the canvas to fill the remaining space */
+    min-height: 0;    /* CRITICAL: Allows the canvas to shrink */
+    position: relative; /* Helps Chart.js with responsiveness */
 }
 .admin-box-full {
     grid-column: 1 / -1; /* Span full width */
