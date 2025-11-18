@@ -1,135 +1,206 @@
-# AOS-Project-2
+# NAS Web App (AOS-Project-2)
 
-## Project Setup
+This is a secure web application for uploading, downloading, and managing your personal files, built with Flask and MySQL.
 
-You must create the database and initialize the tables before running the application.
+## 🚀 Setup Guide (for Beginners)
 
-1.  Log in to your MySQL server (using the `mysql` command line or a GUI).
-2.  Create the database and a dedicated user (as configured in `app.py`):
+This guide will walk you through setting up this project on a new Ubuntu/Debian server.
+
+### Part 1: Install Server Software
+
+Install the main components:
+
+1.  **MySQL:** The database.
+2.  **Python:** The app's language.
+3.  **Apache2:** The web server.
+4.  **Git:** The code downloader.
+
+<!-- end list -->
+
+```bash
+sudo apt update
+sudo apt install -y mysql-server python3-venv python3-pip apache2 git
+```
+
+### Part 2: Set Up the Database
+
+1.  Log in to MySQL as the root user:
+
+    ```bash
+    sudo mysql
+    ```
+
+2.  Paste these commands into the MySQL prompt one by one. **Create a strong, unique password** where it says `YOUR_STRONG_PASSWORD`.
 
     ```sql
     CREATE DATABASE nas_web;
-    CREATE USER 'nas_user'@'localhost' IDENTIFIED BY 'supersecretpassword';
+    CREATE USER 'nas_user'@'localhost' IDENTIFIED BY 'YOUR_STRONG_PASSWORD';
     GRANT ALL PRIVILEGES ON nas_web.* TO 'nas_user'@'localhost';
     FLUSH PRIVILEGES;
+    EXIT;
     ```
 
-3.  Use the database and run the following commands to create the tables. (Note: Foreign keys ensure proper data deletion when a user is removed.)
+    *(You will need this password in the next step).*
 
-    ```sql
-    USE nas_web;
+### Part 3: Set Up the Application
 
-    CREATE TABLE `users` (
-      `id` int NOT NULL AUTO_INCREMENT,
-      `username` varchar(50) NOT NULL,
-      `password` varchar(255) NOT NULL,
-      `role` enum('admin','user') DEFAULT 'user',
-      `quota_gb` int DEFAULT '20',
-      PRIMARY KEY (`id`),
-      UNIQUE KEY `username` (`username`)
-    );
+1.  "Clone" (download) the project code:
 
-    CREATE TABLE `folders` (
-      `id` int NOT NULL AUTO_INCREMENT,
-      `user_id` int NOT NULL,
-      `name` varchar(255) NOT NULL,
-      `parent_id` int DEFAULT NULL,
-      `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (`id`),
-      KEY `parent_id` (`parent_id`),
-      KEY `user_id_fk` (`user_id`),
-      CONSTRAINT `folders_ibfk_1` FOREIGN KEY (`parent_id`) REFERENCES `folders` (`id`),
-      CONSTRAINT `folders_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-    );
-
-    CREATE TABLE `files` (
-      `id` int NOT NULL AUTO_INCREMENT,
-      `user_id` int NOT NULL,
-      `folder_id` int DEFAULT NULL,
-      `original_name` varchar(255) NOT NULL,
-      `mime_type` varchar(100) DEFAULT NULL,
-      `size` bigint DEFAULT NULL,
-      `uploaded_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (`id`),
-      KEY `folder_id` (`folder_id`),
-      KEY `user_id_fk` (`user_id`),
-      CONSTRAINT `files_ibfk_1` FOREIGN KEY (`folder_id`) REFERENCES `folders` (`id`),
-      CONSTRAINT `files_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-    );
-
-    CREATE TABLE `system_stats` (
-      `id` int NOT NULL AUTO_INCREMENT,
-      `timestamp` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      `cpu_percent` float DEFAULT NULL,
-      `mem_percent` float DEFAULT NULL,
-      `net_sent_mbps` float DEFAULT NULL,
-      `net_recv_mbps` float DEFAULT NULL,
-      `disk_read_mbps` float DEFAULT NULL,
-      `disk_write_mbps` float DEFAULT NULL,
-      PRIMARY KEY (`id`)
-    );
-
-    CREATE TABLE `alerts` (
-      `id` int NOT NULL AUTO_INCREMENT,
-      `timestamp` datetime DEFAULT CURRENT_TIMESTAMP,
-      `level` varchar(20) NOT NULL,
-      `message` text NOT NULL,
-      `is_read` tinyint(1) DEFAULT '0',
-      PRIMARY KEY (`id`)
-    );
-
-    CREATE TABLE IF NOT EXISTS login_attempts (
-        user_id INT NOT NULL,
-        attempts INT DEFAULT 0,
-        last_failed TIMESTAMP NULL DEFAULT NULL,
-        PRIMARY KEY (user_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_gb INT DEFAULT 20;
-
-    INSERT INTO users (username, password, role)
-    VALUES ('admin', 'pbkdf2:sha256:260000$EXLF0dhv2EdIsrj0$9a7c478f6bd3e59546ac23af925950050672cfc024bb0f986546d6c0412fefed', 'admin');
+    ```bash
+    sudo git clone https://github.com/seangupta1/AOS-Project-2.git /var/www/nas_app
     ```
 
----
+2.  Create the folder where your uploaded files will be stored:
 
-## Application & Deployment Setup
+    ```bash
+    sudo mkdir -p /var/www/uploads
+    ```
 
-### 1. Code Installation and Dependencies
+3.  **Configure the app.** Open the main app file:
 
-1.  **Clone/Place the project** files into a directory (e.g., `/var/www/nas_app`).
-2.  **Install Python requirements:** Create a virtual environment and install dependencies.
+    ```bash
+    sudo nano /var/www/nas_app/app.py
+    ```
+
+    Find this line (around line 35):
+    `app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'supersecretpassword')`
+
+    Change `'supersecretpassword'` to the `'YOUR_STRONG_PASSWORD'` you created in Part 2. Save and exit (`Ctrl+X`, `Y`, `Enter`).
+
+4.  **Install the app's Python libraries.**
+
     ```bash
     cd /var/www/nas_app
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
-3.  **Create Upload/Log Locations:** Ensure the web server user (`www-data`) has full permissions for the application's required directories.
-    ```bash
-    sudo mkdir -p /var/www/uploads/
-    sudo touch /tmp/nas_app.log
-    sudo chown -R www-data:www-data /var/www/uploads/
-    sudo chown www-data:www-data /tmp/nas_app.log
+    sudo python3 -m venv venv
+    sudo venv/bin/pip install -r requirements.txt
     ```
 
-### 2. Gunicorn Service (Systemd)
+5.  **Run the Database Setup Script.** This creates all your tables and the default `admin` account.
 
-Create a systemd service to run Gunicorn robustly in the background, listening on `127.0.0.1:8000` for Apache.
-
-* You must create a service file named `/etc/systemd/system/nas_app.service` and enable it using `sudo systemctl enable nas_app.service`.
-
-### 3. Apache Reverse Proxy
-
-1.  Copy the provided **`apache.conf`** file to the Apache sites directory:
     ```bash
-    sudo cp /var/www/nas_app/apache.conf /etc/apache2/sites-available/nas_app.conf
+    mysql -u nas_user -p nas_web < init_db.sql
     ```
-2.  Enable the necessary modules (`proxy_http`) and the site, then restart Apache:
+
+    (It will ask for the `'YOUR_STRONG_PASSWORD'` from Part 2).
+
+### Part 4: Set Up the Server
+
+This is the final part. We'll set everything to run as the default web user, `www-data`.
+
+1.  **Fix Permissions.** Give the `www-data` user ownership of all the project and upload files.
+
     ```bash
-    sudo a2enmod proxy proxy_http
-    sudo a2ensite nas_app.conf
-    sudo a2dissite 000-default.conf # Recommended
-    sudo systemctl restart apache2
+    sudo chown -R www-data:www-data /var/www/nas_app
+    sudo chown -R www-data:www-data /var/www/uploads
+    ```
+
+2.  **Create the Apache Config.** This tells Apache how to find your app.
+
+      * Create the file:
+        ```bash
+        sudo nano /etc/apache2/sites-available/nas_app.conf
+        ```
+      * Paste this in. It should work without changes.
+        ```apache
+        ServerName localhost
+        <VirtualHost *:80>
+            ServerName my-nas-server
+            Alias /static /var/www/nas_app/static
+            <Directory /var/www/nas_app/static>
+                Require all granted
+            </Directory>
+            ProxyPreserveHost On
+            ProxyPass / http://127.0.0.1:8000/
+            ProxyPassReverse / http://127.0.0.1:8000/
+        </VirtualHost>
+        ```
+
+3.  **Create the `wsgi.py` file.** This is the "entry point" for the app.
+
+      * Create the file:
+        ```bash
+        sudo nano /var/www/nas_app/wsgi.py
+        ```
+      * Paste this in. It should work without changes.
+        ```python
+        import sys
+        import os
+        sys.path.insert(0, '/var/www/nas_app')
+        from app import app
+        application = app
+        ```
+
+4.  **Create the Service File.** This makes your app run automatically.
+
+      * Create the file:
+        ```bash
+        sudo nano /etc/systemd/system/nas_app.service
+        ```
+      * Paste this in. **This version is generic and does not need to be edited.**
+        ```ini
+        [Unit]
+        Description=Gunicorn instance to serve the NAS Web App
+        After=network.target
+
+        [Service]
+        User=www-data
+        Group=www-data
+
+        WorkingDirectory=/var/www/nas_app
+        ExecStart=/var/www/nas_app/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8000 wsgi:application
+        Restart=always
+
+        [Install]
+        WantedBy=multi-user.target
+        ```
+
+### Part 5: Launch\!
+
+Run these commands to turn everything on.
+
+```bash
+# 1. Enable Apache modules
+sudo a2enmod proxy proxy_http
+sudo a2ensite nas_app.conf
+sudo a2dissite 000-default.conf
+
+# 2. Reload all the config files
+sudo systemctl daemon-reload
+
+# 3. Start your app and Apache
+sudo systemctl start nas_app.service
+sudo systemctl restart apache2
+
+# 4. (Optional) Make your app start on boot
+sudo systemctl enable nas_app.service
+```
+
+Your application is now live\! You can access it by visiting your server's IP address in a browser.
+
+-----
+
+## ❗️ **SECURITY WARNING**
+
+You have just created a default admin account with the credentials:
+
+  * **Username:** `admin`
+  * **Password:** `password`
+
+You **MUST** change this immediately.
+
+1.  Log in to your server and run this command:
+    ```bash
+    /var/www/nas_app/venv/bin/python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash(input('Enter new admin password: ')))"
+    ```
+2.  Enter and confirm your new, secure password.
+3.  Copy the hash it gives you (it starts with `pbkdf2:sha256...`).
+4.  Log in to MySQL (`sudo mysql`) and run this command to update your password:
+    ```sql
+    USE nas_web;
+    UPDATE users SET password = 'PASTE_YOUR_NEW_HASH_HERE' WHERE username = 'admin';
+    EXIT;
+    ```
+5.  Restart your app to be safe:
+    ```bash
+    sudo systemctl restart nas_app.service
     ```
