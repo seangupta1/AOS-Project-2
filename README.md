@@ -47,7 +47,7 @@ sudo apt install -y mysql-server python3-venv python3-pip apache2 git
 1.  "Clone" (download) the project code:
 
     ```bash
-    sudo git clone https://github.com/seangupta1/AOS-Project-2.git /var/www/nas_app
+    sudo git clone https://github.com/seangupta1/Network-Attached-Storage-Linux-Web-Server.git /var/www/nas_app
     ```
 
 2.  Create the folder where your uploaded files will be stored:
